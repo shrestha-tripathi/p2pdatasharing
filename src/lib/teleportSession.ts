@@ -235,6 +235,8 @@ export class TeleportSession {
   /**
    * Sender path, manual: returns a base64 offer blob.
    * Wait for the peer's answer blob, then call acceptManualAnswer().
+   * NOTE: paranoid mode skips the auto connect timer entirely — the
+   * handshake is gated on human copy/paste which can take a long time.
    */
   async hostManual(): Promise<string> {
     this.role = "sender";
@@ -255,11 +257,12 @@ export class TeleportSession {
     const decoded = decodeBlob(blob);
     if (decoded.type !== "answer") throw new Error("Expected 'answer' blob");
     await this.peer.setRemoteDescription(decoded.sdp);
-    this.startConnectTimer();
+    // No startConnectTimer — paranoid mode never auto-times-out.
   }
 
   /**
    * Receiver path, manual: paste the offer blob, get back an answer blob.
+   * Same rationale as hostManual — no auto timeout.
    */
   async joinManual(offerBlob: string): Promise<string> {
     this.role = "receiver";
@@ -272,7 +275,6 @@ export class TeleportSession {
     const answer = await this.peer.createAnswer();
     await this.peer.setLocalDescription(answer);
     await this.waitForIceGathering();
-    this.startConnectTimer();
     return encodeBlob({ type: "answer", sdp: this.peer.localDescription! });
   }
 
