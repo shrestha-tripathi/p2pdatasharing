@@ -96,6 +96,12 @@ export class TeleportSession {
   private cachedCandidates: RTCIceCandidateInit[] = [];
   private candidatesReceived = 0;
   private candidateTypes = { host: 0, srflx: 0, relay: 0, prflx: 0 };
+  /**
+   * Whether this session is in paranoid (manual SDP) mode. In paranoid
+   * mode we never auto-time-out — humans pace the handshake by copy-pasting
+   * blobs over a side channel, which can take arbitrarily long.
+   */
+  private isParanoid = false;
 
   private emitDiag() {
     const wsState: DiagSnapshot["ws"] = !this.ws
@@ -153,7 +159,11 @@ export class TeleportSession {
       const s = this.peer.connectionState;
       this.emitter.emit("log", `peer state: ${s}`);
       if (s === "connecting") {
-        this.startConnectTimer();
+        // In paranoid mode the peer transitions to 'connecting' as soon
+        // as both blobs are exchanged — but the actual TURN/STUN
+        // negotiation may need to wait for the user to come back to
+        // the tab, paste the other side, etc. Skip the auto timer.
+        if (!this.isParanoid) this.startConnectTimer();
       } else if (s === "connected") {
         this.clearConnectTimer();
         this.emitter.emit("state", "connected");
@@ -240,6 +250,7 @@ export class TeleportSession {
    */
   async hostManual(): Promise<string> {
     this.role = "sender";
+    this.isParanoid = true;
     this.emitter.emit("state", "signaling");
 
     const ch = this.peer.createDataChannel("file-payload");
@@ -266,6 +277,7 @@ export class TeleportSession {
    */
   async joinManual(offerBlob: string): Promise<string> {
     this.role = "receiver";
+    this.isParanoid = true;
     this.emitter.emit("state", "signaling");
 
     const decoded = decodeBlob(offerBlob);
