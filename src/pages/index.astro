@@ -240,14 +240,23 @@ const features = [
 
             <svg viewBox="0 0 360 200" class="mt-6 w-full h-auto" aria-hidden="true">
               <defs>
-                <marker id="arr-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                  <path d="M0,0 L8,4 L0,8 z" fill="var(--color-accent)" />
+                <marker id="arr-new" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--color-accent)" />
                 </marker>
-                <linearGradient id="directLine" x1="0%" y1="0%" x2="100%" y2="0%">
-                  <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.6"/>
-                  <stop offset="50%" stop-color="var(--color-accent)" stop-opacity="1"/>
-                  <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.6"/>
-                </linearGradient>
+                <!--
+                  filterUnits=userSpaceOnUse with explicit coords — the previous
+                  filter used bounding-box-relative percentages, which collapsed
+                  to zero on a horizontal-only path (height=0 bbox). Same bug
+                  bit the gradient before this. Both renderers (Chrome + iOS
+                  WebKit) clipped the line to invisible.
+                -->
+                <filter id="directGlow" filterUnits="userSpaceOnUse" x="80" y="130" width="200" height="30">
+                  <feGaussianBlur stdDeviation="2" result="blur"/>
+                  <feMerge>
+                    <feMergeNode in="blur"/>
+                    <feMergeNode in="SourceGraphic"/>
+                  </feMerge>
+                </filter>
               </defs>
               <!-- Sender -->
               <rect x="10" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
@@ -255,9 +264,14 @@ const features = [
               <!-- Receiver -->
               <rect x="270" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
               <text x="310" y="148" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Recipient</text>
-              <!-- Direct line (curve down + straight across) -->
-              <path d="M 90 145 L 270 145" fill="none" stroke="url(#directLine)" stroke-width="3" stroke-linecap="round" marker-end="url(#arr-new)"/>
-              <text x="180" y="135" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Direct, encrypted</text>
+              <!--
+                Direct line — drawn as a very shallow arc (control point 1px below)
+                so the path bounding box has non-zero height. Pure-horizontal lines
+                hit SVG filter/gradient bbox edge cases in WebKit. Solid accent
+                stroke + glow filter (userSpaceOnUse so it actually paints).
+              -->
+              <path d="M 90 145 Q 180 146.5 268 145" fill="none" stroke="var(--color-accent)" stroke-width="3" stroke-linecap="round" marker-end="url(#arr-new)" filter="url(#directGlow)"/>
+              <text x="180" y="133" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Direct, encrypted</text>
               <!-- Tiny cloud above, faded -->
               <ellipse cx="180" cy="50" rx="36" ry="16" fill="none" stroke="var(--color-fg-subtle)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
               <text x="180" y="48" text-anchor="middle" font-size="9" fill="var(--color-fg-subtle)" opacity="0.7">handshake only</text>

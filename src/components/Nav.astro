@@ -47,6 +47,22 @@ const b = (p: string) => `${base}${p}`;
           ]}
         >{l.label}</a>
       ))}
+      <!--
+        Global theme toggle — lives in Nav so every page gets it (previously
+        only existed inside the /transfer app). Wired via window.__setTheme
+        defined in Layout.astro. Dark by default; persists in localStorage.
+        Shows SUN icon in dark mode (click → go light); MOON icon in light.
+      -->
+      <button
+        id="nav-theme-toggle"
+        type="button"
+        class="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] hover:bg-[var(--color-bg-muted)] transition-colors"
+        aria-label="Toggle light/dark theme"
+        title="Toggle light/dark theme"
+      >
+        <svg id="nav-theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        <svg id="nav-theme-icon-moon" class="hidden" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      </button>
       {path !== "/transfer" ? (
         <a
           href={b("/transfer")}
@@ -70,3 +86,28 @@ const b = (p: string) => `${base}${p}`;
     </div>
   </nav>
 </header>
+
+<!--
+  Single source of truth for the Nav theme toggle. Uses window.__setTheme
+  / __getTheme defined in Layout.astro. is:inline so it runs synchronously
+  on every page without bundling overhead.
+-->
+<script is:inline>
+  (function () {
+    var btn = document.getElementById("nav-theme-toggle");
+    var iconSun = document.getElementById("nav-theme-icon-sun");
+    var iconMoon = document.getElementById("nav-theme-icon-moon");
+    if (!btn) return;
+    function sync() {
+      var t = (window.__getTheme && window.__getTheme()) || "dark";
+      if (iconSun) iconSun.classList.toggle("hidden", t !== "dark");
+      if (iconMoon) iconMoon.classList.toggle("hidden", t !== "light");
+    }
+    sync();
+    btn.addEventListener("click", function () {
+      var cur = (window.__getTheme && window.__getTheme()) || "dark";
+      if (window.__setTheme) window.__setTheme(cur === "dark" ? "light" : "dark");
+    });
+    window.addEventListener("themechange", sync);
+  })();
+</script>
