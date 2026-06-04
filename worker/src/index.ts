@@ -124,6 +124,14 @@ async function handleTurn(env: Env): Promise<Response> {
 
 export class RoomDO implements DurableObject {
   private peers = new Set<WebSocket>();
+  /**
+   * Messages buffered while only one peer was in the room. Replayed in
+   * order to the second peer the moment they join. Fixes the race where
+   * the host creates an offer (and gathers ICE candidates) BEFORE the
+   * receiver has even opened their WebSocket — without buffering, those
+   * messages are forwarded to an empty peer set and lost forever.
+   */
+  private pendingForJoiner: (string | ArrayBuffer)[] = [];
   private state: DurableObjectState;
 
   constructor(state: DurableObjectState, _env: Env) {
@@ -132,7 +140,6 @@ export class RoomDO implements DurableObject {
 
   async fetch(request: Request): Promise<Response> {
     if (this.peers.size >= 2) {
-      // Reject the third joiner with a friendly close code.
       return new Response("Room full", { status: 423 });
     }
 
@@ -145,10 +152,31 @@ export class RoomDO implements DurableObject {
 
   private accept(ws: WebSocket) {
     ws.accept();
+    const isSecondPeer = this.peers.size === 1;
     this.peers.add(ws);
 
+    // If this is the second peer, replay everything the first peer sent
+    // while they were alone in the room.
+    if (isSecondPeer && this.pendingForJoiner.length > 0) {
+      for (const buffered of this.pendingForJoiner) {
+        try {
+          ws.send(buffered as string);
+        } catch {
+          /* peer may have closed instantly — ignore */
+        }
+      }
+      this.pendingForJoiner = [];
+    }
+
     ws.addEventListener("message", (event) => {
-      // Forward verbatim to every other peer in the room.
+      if (this.peers.size < 2) {
+        // No peer to forward to yet — buffer for the future joiner.
+        // Cap buffer to prevent abuse / runaway memory.
+        if (this.pendingForJoiner.length < 256) {
+          this.pendingForJoiner.push(event.data);
+        }
+        return;
+      }
       for (const peer of this.peers) {
         if (peer !== ws && peer.readyState === WebSocket.READY_STATE_OPEN) {
           try {
@@ -162,8 +190,11 @@ export class RoomDO implements DurableObject {
 
     const cleanup = () => {
       this.peers.delete(ws);
-      // No explicit storage clear needed — DOs evict themselves automatically
-      // once they're idle and have no in-memory state.
+      if (this.peers.size === 0) {
+        // Both peers gone — clear any leftover buffered messages so the
+        // next room reuse starts clean.
+        this.pendingForJoiner = [];
+      }
     };
     ws.addEventListener("close", cleanup);
     ws.addEventListener("error", cleanup);
