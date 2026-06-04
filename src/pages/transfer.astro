@@ -52,36 +52,18 @@ import { site } from "../site.config";
       </div>
     </header>
 
-    <!-- ROLE PICKER (shown when no role chosen yet) -->
-    <section id="role-picker" class="hidden">
-
-      <!-- Incoming pair request — shown when URL contains #pair=... -->
-      <div id="pair-incoming" class="hidden rounded-lg border border-[var(--color-accent)] bg-[var(--color-bg-subtle)] p-5 mb-4">
-        <h3 class="font-semibold flex items-center gap-2">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>
-          Pair this device
-        </h3>
-        <p id="pair-incoming-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]">
-          Another device wants to pair with this one for direct auto-connect.
-        </p>
-        <label class="block mt-3 text-xs text-[var(--color-fg-muted)]">
-          Label this device (e.g. "Laptop", "iPhone")
-          <input id="pair-incoming-name" type="text" maxlength="40" placeholder="My Laptop"
-            class="mt-1 w-full h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
-        </label>
-        <div class="mt-4 flex flex-wrap gap-2">
-          <button id="pair-incoming-accept" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Pair devices</button>
-          <button id="pair-incoming-cancel" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Cancel</button>
+    <!-- My Devices panel — standalone (NOT inside role-picker) so it stays
+         visible during active connections, showing live presence dots. -->
+    <details id="devices-panel" class="rounded-lg border border-[var(--color-border)] mb-4 group" open>
+      <summary class="cursor-pointer p-4 flex items-center justify-between gap-3 flex-wrap hover:bg-[var(--color-bg-subtle)] transition-colors select-none">
+        <div class="flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="14" height="12" rx="1"/><path d="M17 9h3v8a1 1 0 0 1-1 1h-2"/><path d="M8 20h8"/></svg>
+          <h3 class="font-semibold text-sm">My Devices <span id="devices-count" class="text-[var(--color-fg-muted)] font-normal"></span></h3>
         </div>
-      </div>
-
-      <!-- My Devices panel -->
-      <div class="rounded-lg border border-[var(--color-border)] p-5 mb-4">
-        <div class="flex items-center justify-between gap-3 flex-wrap">
-          <div class="flex items-center gap-2">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="14" height="12" rx="1"/><path d="M17 9h3v8a1 1 0 0 1-1 1h-2"/><path d="M8 20h8"/></svg>
-            <h3 class="font-semibold">My Devices <span id="devices-count" class="text-[var(--color-fg-muted)] font-normal text-sm"></span></h3>
-          </div>
+        <svg class="text-[var(--color-fg-subtle)] transition-transform group-open:rotate-180" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </summary>
+      <div class="p-4 pt-0 border-t border-[var(--color-border)]">
+        <div class="flex justify-end mt-4">
           <button id="devices-add" class="h-9 rounded-md border border-[var(--color-border)] px-3 text-sm hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
             Add device
@@ -108,7 +90,6 @@ import { site } from "../site.config";
           </div>
         </div>
 
-        <!-- Paired-devices list -->
         <ul id="devices-list" class="mt-4 space-y-2"></ul>
 
         <label class="mt-4 flex items-center gap-2 text-xs text-[var(--color-fg-muted)] cursor-pointer">
@@ -116,6 +97,34 @@ import { site } from "../site.config";
           Auto-accept transfers from my devices (recommended)
         </label>
       </div>
+    </details>
+
+    <!-- ROLE PICKER (shown when no role chosen yet) -->
+    <section id="role-picker" class="hidden">
+
+      <!-- Incoming pair request — shown when URL contains #pair=... -->
+      <div id="pair-incoming" class="hidden rounded-lg border border-[var(--color-accent)] bg-[var(--color-bg-subtle)] p-5 mb-4">
+        <h3 class="font-semibold flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="7" width="20" height="10" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg>
+          Pair this device
+        </h3>
+        <p id="pair-incoming-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]">
+          Another device wants to pair with this one for direct auto-connect.
+        </p>
+        <label class="block mt-3 text-xs text-[var(--color-fg-muted)]">
+          Label this device (e.g. "Laptop", "iPhone")
+          <input id="pair-incoming-name" type="text" maxlength="40" placeholder="My Laptop"
+            class="mt-1 w-full h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+        </label>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button id="pair-incoming-accept" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Pair devices</button>
+          <button id="pair-incoming-cancel" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Cancel</button>
+        </div>
+      </div>
+
+      <!-- My Devices panel was here originally — moved out of role-picker
+           so the panel + presence dots stay visible after a connection
+           forms (role-picker hides on connect). -->
 
       <div class="rounded-lg border border-[var(--color-border)] p-6 mb-6">
         <h2 class="text-xl font-semibold mb-1">What do you want to do?</h2>
