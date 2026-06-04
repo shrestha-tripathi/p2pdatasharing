@@ -1560,8 +1560,34 @@ import { site } from "../site.config";
     // ---------- Role picker ----------
     const params = new URL(location.href);
     const presetRoom = params.searchParams.get("r") || location.hash.replace(/^#/, "");
+    const sharedFlag = params.searchParams.get("shared") === "1";
 
-    if (presetRoom) {
+    // Web Share Target: files were POSTed via SW, retrieve them from cache
+    if (sharedFlag) {
+      // Strip the query string so a reload doesn't re-trigger
+      history.replaceState({}, "", `${location.pathname}`);
+      (async () => {
+        try {
+          const res = await fetch("/__shared__");
+          if (!res.ok) return;
+          const form = await res.formData();
+          const files = form.getAll("files").filter((f): f is File => f instanceof File);
+          if (files.length === 0) return;
+          // Auto-pick sender role and queue the shared files
+          role = "sender";
+          rolePicker.classList.add("hidden");
+          bootRole();
+          // bootRole runs async (bootAutoSender) — wait a tick then enqueue
+          setTimeout(() => {
+            const dt = new DataTransfer();
+            for (const f of files) dt.items.add(f);
+            onPickFiles(dt.files);
+          }, 50);
+        } catch (e) {
+          addWarning(`Could not load shared files: ${(e as Error).message}`);
+        }
+      })();
+    } else if (presetRoom) {
       // Auto-detect: someone gave us an invite link → we're the receiver.
       role = "receiver";
       bootRole();

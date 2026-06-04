@@ -24,6 +24,12 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <link rel="apple-touch-icon" href={`${import.meta.env.BASE_URL}apple-touch-icon.png`} />
+    <link rel="manifest" href={`${import.meta.env.BASE_URL}manifest.webmanifest`} />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content={site.shortName} />
 
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
@@ -35,6 +41,16 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
     <meta name="twitter:description" content={description} />
 
     <meta name="generator" content={Astro.generator} />
+    <script is:inline>
+      // Register service worker (PWA + Web Share Target)
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js").catch((e) => {
+            console.warn("SW registration failed:", e);
+          });
+        });
+      }
+    </script>
   </head>
   <body class="antialiased selection:bg-[var(--color-accent)] selection:text-white">
     <slot />
