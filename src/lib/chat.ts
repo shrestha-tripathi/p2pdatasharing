@@ -4,6 +4,7 @@
  * Wire format (all JSON strings — coexists with file `meta` + binary chunks):
  *   { kind: "chat",   id, text, ts }
  *   { kind: "typing", isTyping }
+ *   { kind: "hello",  name }    // nickname exchange on channel open
  *
  * Privacy: messages are ephemeral, never persisted, never seen by any server.
  * Same DTLS encryption as file chunks.
@@ -21,10 +22,12 @@ export interface ChatEvents {
   message: ChatMessage;
   peerTyping: boolean;
   peerDisconnected: void;
+  peerHello: { name: string };
   error: Error;
 }
 
 const MAX_TEXT_LEN = 2000;
+const MAX_NAME_LEN = 40;
 const TYPING_DEBOUNCE_MS = 1000;
 const TYPING_AUTO_OFF_MS = 3000;
 
@@ -33,6 +36,8 @@ export class ChatManager {
   private lastTypingSent = 0;
   private autoOffTimer: ReturnType<typeof setTimeout> | null = null;
   private currentlyTyping = false;
+  private myName: string | null = null;
+  private helloSent = false;
 
   constructor(private session: TeleportSession) {
     session.emitter.on("channelMessage", (m) => {
@@ -47,10 +52,19 @@ export class ChatManager {
           });
         } else if (parsed.kind === "typing") {
           this.emitter.emit("peerTyping", Boolean(parsed.isTyping));
+        } else if (parsed.kind === "hello" && typeof parsed.name === "string") {
+          const name = String(parsed.name).trim().slice(0, MAX_NAME_LEN);
+          if (name) this.emitter.emit("peerHello", { name });
         }
       } catch {
         /* not a chat message — file meta or other; ignore */
       }
+    });
+
+    session.emitter.on("channelOpen", () => {
+      // Re-send hello on every channel open (covers reconnects).
+      this.helloSent = false;
+      this.sendHelloIfReady();
     });
 
     session.emitter.on("state", (s) => {
@@ -60,6 +74,24 @@ export class ChatManager {
         this.emitter.emit("peerDisconnected", undefined);
       }
     });
+  }
+
+  /** Set local nickname. Triggers a hello to the peer if channel is up. */
+  setMyName(name: string) {
+    const clean = name.trim().slice(0, MAX_NAME_LEN);
+    this.myName = clean || null;
+    this.helloSent = false;
+    this.sendHelloIfReady();
+  }
+
+  private sendHelloIfReady() {
+    if (this.helloSent || !this.myName) return;
+    try {
+      this.session.send(JSON.stringify({ kind: "hello", name: this.myName }));
+      this.helloSent = true;
+    } catch {
+      // Channel not open yet — channelOpen handler will retry
+    }
   }
 
   /**

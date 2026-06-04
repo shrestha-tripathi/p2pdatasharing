@@ -18,6 +18,16 @@ import { site } from "../site.config";
         <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport files</h1>
       </div>
       <div class="flex items-center gap-5 flex-wrap">
+        <label class="inline-flex items-center gap-2 text-sm">
+          <span class="text-[var(--color-fg-muted)]">I'm</span>
+          <input
+            id="my-name"
+            type="text"
+            maxlength="40"
+            placeholder="Your nickname"
+            class="h-8 w-32 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-2 text-sm focus:outline-none focus:border-[var(--color-accent)]"
+          />
+        </label>
         <button id="sound-toggle" type="button" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Toggle sounds" title="Toggle sounds & vibration">
           <svg id="sound-icon-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>
           <svg id="sound-icon-off" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg>
@@ -278,7 +288,7 @@ import { site } from "../site.config";
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="text-[var(--color-fg-muted)]">
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
-        <h2 class="text-sm font-semibold">Chat</h2>
+        <h2 class="text-sm font-semibold">Chat <span id="chat-peer-label" class="font-normal text-[var(--color-fg-muted)]"></span></h2>
         <span class="ml-auto text-xs text-[var(--color-fg-subtle)]">End-to-end encrypted · Not saved anywhere</span>
       </header>
 
@@ -417,6 +427,42 @@ import { site } from "../site.config";
 
     // ---------- Mobile-native polish: sounds, vibration, tab title ----------
     const SOUND_KEY = "p2pds:sound";
+
+    // ---------- Device nickname ----------
+    const NAME_KEY = "p2pds:name";
+    const myNameInput = $<HTMLInputElement>("my-name");
+    let myName: string = "";
+    try { myName = localStorage.getItem(NAME_KEY) || ""; } catch {}
+    myNameInput.value = myName;
+    let peerName: string = "";
+
+    const refreshIdentityLabels = () => {
+      // Header status pill: "You · Shrestha" or fallback to Sender/Receiver
+      if (myName && peerName) {
+        statusRole.textContent = `${myName} ↔ ${peerName}`;
+      } else if (myName) {
+        statusRole.textContent = `${myName} · ${role === "receiver" ? "Receiver" : "Sender"}`;
+      } else if (peerName) {
+        statusRole.textContent = `${role === "receiver" ? "Receiver" : "Sender"} ↔ ${peerName}`;
+      } else {
+        statusRole.textContent = role === "receiver" ? "Receiver" : "Sender";
+      }
+      // Chat header "End-to-end encrypted · Not saved anywhere" — append peer name
+      const chatPeerLabel = document.getElementById("chat-peer-label");
+      if (chatPeerLabel) {
+        chatPeerLabel.textContent = peerName ? `with ${peerName}` : "";
+      }
+    };
+
+    myNameInput.addEventListener("input", () => {
+      const v = myNameInput.value.trim().slice(0, 40);
+      myName = v;
+      try { localStorage.setItem(NAME_KEY, myName); } catch {}
+      refreshIdentityLabels();
+      // Push update to peer if chat already exists
+      if (chat) chat.setMyName(myName);
+    });
+
     let soundOn = true;
     try { soundOn = localStorage.getItem(SOUND_KEY) !== "0"; } catch {}
     const soundToggle = $<HTMLButtonElement>("sound-toggle");
@@ -855,6 +901,24 @@ import { site } from "../site.config";
       transfer = new FileTransfer(s);
       chat = new ChatManager(s);
       wireChat(chat);
+      // Push current local nickname to peer (no-op if empty)
+      if (myName) chat.setMyName(myName);
+      // Listen for peer's nickname announcement
+      chat.emitter.on("peerHello", ({ name }) => {
+        const isFirst = !peerName;
+        peerName = name;
+        refreshIdentityLabels();
+        if (isFirst) {
+          addWarning(`👋 ${name} connected`);
+          // Auto-clear that toast after 5s
+          setTimeout(() => {
+            const toasts = warnings.querySelectorAll("div");
+            toasts.forEach((t) => {
+              if (t.textContent?.includes(`👋 ${name} connected`)) t.remove();
+            });
+          }, 5000);
+        }
+      });
 
       s.emitter.on("diag", (d) => {
         renderDiag(d);
@@ -1683,7 +1747,9 @@ import { site } from "../site.config";
       renderPendingQueue();
       resetChatUI();
       showStatus();
-      statusRole.textContent = role === "receiver" ? "Receiver" : "Sender";
+      // Reset peer identity — new connection means new (possibly same) peer
+      peerName = "";
+      refreshIdentityLabels();
 
       // Sender: show drop zone + transfer panel IMMEDIATELY so files can be queued
       // before the receiver joins. Receiver doesn't get drop zone.
@@ -1758,6 +1824,7 @@ import { site } from "../site.config";
       // is still on the "paste invite link" sub-step.
       role = "receiver";
       statusRole.textContent = "Receiver";
+      refreshIdentityLabels();
       // If paranoid is already on, jump straight into the paranoid flow.
       if (paranoidToggle.checked) {
         rolePicker.classList.add("hidden");
