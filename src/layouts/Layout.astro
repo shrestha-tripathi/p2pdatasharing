@@ -6,11 +6,46 @@ interface Props {
   title: string;
   description?: string;
   noindex?: boolean;
+  /**
+   * Optional extra JSON-LD blocks (e.g. WebApplication on home, FAQPage on FAQ).
+   * Each entry becomes its own <script type="application/ld+json"> tag.
+   * The sitewide Organization + WebSite schemas are always emitted below.
+   */
+  jsonLd?: Record<string, unknown>[];
 }
 
-const { title, description = site.description, noindex = false } = Astro.props;
+const { title, description = site.description, noindex = false, jsonLd = [] } = Astro.props;
 const fullTitle = `${title} | ${site.shortName}`;
 const canonical = new URL(Astro.url.pathname, site.url).toString();
+const logoUrl = new URL(`${import.meta.env.BASE_URL}icon-512.png`, site.url).toString();
+const ogImageUrl = new URL(`${import.meta.env.BASE_URL}og-image.png`, site.url).toString();
+
+// Sitewide schemas — always included on every page so Google's knowledge
+// graph can stitch brand identity together regardless of which URL it crawls
+// first. Organization gives us a brand panel; WebSite enables sitelinks.
+const orgSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "@id": `${site.url}/#organization`,
+  name: site.name,
+  url: site.url,
+  logo: logoUrl,
+  description: site.description,
+  founder: { "@type": "Person", name: site.author },
+};
+
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "@id": `${site.url}/#website`,
+  url: site.url,
+  name: site.name,
+  description: site.description,
+  publisher: { "@id": `${site.url}/#organization` },
+  inLanguage: site.locale,
+};
+
+const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
 ---
 
 <!doctype html>
@@ -55,18 +90,22 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonical} />
     <meta property="og:site_name" content={site.shortName} />
-    <meta property="og:image" content={new URL(`${import.meta.env.BASE_URL}og-image.png`, site.url).toString()} />
+    <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="WebFileSend — send files across any network, browser to browser" />
+    <meta property="og:image:alt" content={`${site.shortName} — ${site.tagline}`} />
     <meta property="og:locale" content={site.locale.replace("-", "_")} />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content={new URL(`${import.meta.env.BASE_URL}og-image.png`, site.url).toString()} />
-    <meta name="twitter:image:alt" content="WebFileSend — send files across any network, browser to browser" />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={`${site.shortName} — ${site.tagline}`} />
     {site.twitter && <meta name="twitter:site" content={site.twitter} />}
+
+    {allJsonLd.map((schema) => (
+      <script type="application/ld+json" set:html={JSON.stringify(schema)} />
+    ))}
 
     <meta name="generator" content={Astro.generator} />
     <script is:inline>

@@ -5,6 +5,38 @@ import Footer from "../components/Footer.astro";
 import MechanismAnimation from "../components/MechanismAnimation.astro";
 import { site } from "../site.config";
 
+// WebApplication schema — tells Google this URL is a usable web app, not
+// just marketing. Eligible for software-app rich results (rating, price).
+const webAppSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "@id": `${site.url}/#webapp`,
+  name: site.name,
+  alternateName: ["P2P File Transfer", "Browser-to-browser file sharing"],
+  url: site.url,
+  description: site.description,
+  applicationCategory: "UtilitiesApplication",
+  applicationSubCategory: "FileSharing",
+  operatingSystem: "Any (Chrome, Firefox, Safari, Edge)",
+  browserRequirements: "Requires a modern browser with WebRTC support",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  },
+  featureList: [
+    "Peer-to-peer file transfer over WebRTC",
+    "End-to-end encrypted with DTLS",
+    "No file size limit",
+    "No signup, no install, no upload",
+    "Works across any network — home, mobile, corporate",
+    "Resume after disconnect",
+    "Persistent device pairing",
+    "QR code pairing",
+  ],
+  publisher: { "@id": `${site.url}/#organization` },
+};
+
 const features = [
   {
     title: "Works across any network",
@@ -33,7 +65,11 @@ const features = [
 ];
 ---
 
-<Layout title="Send files browser-to-browser across any network — no server, no cloud" description={site.description}>
+<Layout
+  title="Send files browser-to-browser across any network — no server, no cloud"
+  description={site.description}
+  jsonLd={[webAppSchema]}
+>
   <Nav />
 
   <main>
