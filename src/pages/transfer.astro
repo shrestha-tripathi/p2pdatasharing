@@ -3171,6 +3171,11 @@ import { site } from "../site.config";
       pendingPairSecret = "";
       devicesAddPanel.classList.add("hidden");
       renderDevices();
+      // Inviter side: now that a pair exists locally, reveal the mode toggle
+      // and default to paired mode (matches the acceptor-side behaviour).
+      connectMode = "paired";
+      updateConnectModeUI();
+      refreshModeToggle();
     };
 
     // ---------- Incoming pair (URL fragment) ----------
