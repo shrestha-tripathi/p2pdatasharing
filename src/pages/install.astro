@@ -1,0 +1,273 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+/**
+ * /install — PWA install guide page.
+ *
+ * Why this page exists:
+ *   1. ToffeeShare has /download for their native Android/Windows apps and
+ *      it ranks for "file transfer app download". We're PWA-only — but a
+ *      well-installed PWA acts/feels native, so we capture the same intent
+ *      without shipping native binaries.
+ *   2. "Install" is a high-intent keyword. Users searching it have committed
+ *      to using a file transfer tool — not just researching.
+ *   3. PWA installation is genuinely under-explained in most webapps; many
+ *      users don't realize "add to home screen" gives them an app icon.
+ *
+ * Differentiator angle: "no app store needed" — friction-free vs ToffeeShare's
+ * Google Play / Windows EXE download flows.
+ */
+
+// HowTo schema — Google can render install steps as an enhanced rich result.
+const howToSchema = {
+  "@context": "https://schema.org",
+  "@type": "HowTo",
+  name: `Install ${site.shortName} as an app on Android, iOS, or desktop`,
+  description: `Step-by-step guide to install ${site.shortName} as a Progressive Web App on Android, iOS, Windows, macOS, or Linux — no app store required.`,
+  step: [
+    {
+      "@type": "HowToStep",
+      name: "Open in your browser",
+      text: `Visit ${site.url} in Chrome, Edge, Safari, or any modern mobile browser.`,
+    },
+    {
+      "@type": "HowToStep",
+      name: "Open the install prompt",
+      text: "On Android Chrome: tap the menu (⋮) and choose 'Install app'. On iOS Safari: tap the Share button and choose 'Add to Home Screen'. On Desktop Chrome/Edge: click the install icon in the URL bar.",
+    },
+    {
+      "@type": "HowToStep",
+      name: "Confirm",
+      text: `Tap Install. ${site.shortName} now lives on your home screen or app menu and opens in its own window.`,
+    },
+  ],
+  totalTime: "PT1M",
+};
+
+type Platform = {
+  os: string;
+  browsers: string[];
+  iconPath: string;
+  iconViewBox: string;
+  steps: { label: string; detail: string }[];
+  bonus?: string;
+};
+
+const platforms: Platform[] = [
+  {
+    os: "Android",
+    browsers: ["Chrome", "Edge", "Brave", "Samsung Internet"],
+    iconViewBox: "0 0 24 24",
+    iconPath:
+      "M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993.0001.5511-.4482.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1521-.5676.416.416 0 00-.5676.1521l-2.0223 3.503C15.5902 8.2439 13.8533 7.8508 12 7.8508s-3.5902.3931-5.1367 1.0989L4.841 5.4467a.4161.4161 0 00-.5677-.1521.4157.4157 0 00-.1521.5676l1.9973 3.4592C2.6889 11.1867.3432 14.6589 0 18.761h24c-.3432-4.1021-2.6889-7.5743-6.1185-9.4396",
+    steps: [
+      { label: "1. Open the app", detail: `Visit ${site.url} in Chrome` },
+      { label: "2. Tap the menu (⋮)", detail: "Top-right of the address bar" },
+      { label: "3. Choose 'Install app'", detail: `Or 'Add to Home screen'` },
+      { label: "4. Confirm Install", detail: "App icon appears on your home screen" },
+    ],
+    bonus: "Opens in its own window with no browser chrome. Background transfers keep running.",
+  },
+  {
+    os: "iOS / iPadOS",
+    browsers: ["Safari"],
+    iconViewBox: "0 0 24 24",
+    iconPath:
+      "M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.54 4.09zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z",
+    steps: [
+      { label: "1. Open the app", detail: `Visit ${site.url} in Safari` },
+      { label: "2. Tap the Share button", detail: "Square with up-arrow at bottom" },
+      { label: "3. Scroll to 'Add to Home Screen'", detail: "Tap it" },
+      { label: "4. Tap 'Add'", detail: "App icon appears on your home screen" },
+    ],
+    bonus: "iOS PWAs run in standalone mode — looks and feels like a native app.",
+  },
+  {
+    os: "Windows / macOS / Linux",
+    browsers: ["Chrome", "Edge", "Brave", "Arc"],
+    iconViewBox: "0 0 24 24",
+    iconPath:
+      "M2 4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-7v2h3a1 1 0 0 1 0 2H8a1 1 0 0 1 0-2h3v-2H4a2 2 0 0 1-2-2V4zm2 0v12h16V4H4z",
+    steps: [
+      { label: "1. Open the app", detail: `Visit ${site.url} in Chrome or Edge` },
+      { label: "2. Click the install icon", detail: "Far-right of the URL bar (looks like a monitor with a down arrow)" },
+      { label: "3. Click Install", detail: "App opens in its own window" },
+      { label: "4. Pin to taskbar / dock", detail: "Right-click the icon → Pin (optional)" },
+    ],
+    bonus: "Behaves like a real desktop app. Persists across reboots. Drag-and-drop works.",
+  },
+];
+---
+
+<Layout
+  title="Install as an app — Android, iOS, Windows, macOS"
+  description={`Install ${site.shortName} as a Progressive Web App on Android, iOS, Windows, macOS, or Linux. No app store, no download — one tap to add ${site.shortName} to your home screen.`}
+  jsonLd={[howToSchema]}
+>
+  <Nav />
+
+  <main>
+    <!-- HERO -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-20 md:py-28">
+        <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">
+          Install · One-tap PWA · No app store
+        </p>
+        <h1 class="mt-4 text-5xl md:text-7xl font-semibold tracking-tight max-w-4xl">
+          Install {site.shortName}.
+          <span class="text-[var(--color-fg-muted)]">No app store. No download. One tap.</span>
+        </h1>
+        <p class="mt-6 max-w-2xl text-lg md:text-xl text-[var(--color-fg-muted)]">
+          {site.shortName} is a Progressive Web App — install it directly from your browser
+          and it lives on your home screen like any other app. Works on Android, iOS, Windows,
+          macOS, and Linux. Updates are automatic. No Play Store, no App Store, no .exe download.
+        </p>
+        <div class="mt-10 flex flex-wrap gap-3">
+          <a
+            href={`${import.meta.env.BASE_URL}transfer`}
+            class="inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-6 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+          >
+            Open app to install →
+          </a>
+          <a
+            href={`${import.meta.env.BASE_URL}how-it-works`}
+            class="inline-flex h-12 items-center rounded-lg border border-[var(--color-border)] px-6 text-sm font-medium text-[var(--color-fg)] no-underline transition-colors hover:bg-[var(--color-bg-muted)]"
+          >
+            How it works
+          </a>
+        </div>
+
+        <div class="mt-10 flex flex-wrap gap-2.5">
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            ~5 second install
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            No permissions
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            Auto-updates
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            ~2 MB total
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PER-PLATFORM INSTALL STEPS -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24">
+        <h2 class="text-3xl md:text-5xl font-semibold tracking-tight max-w-2xl">
+          Install on your platform.
+          <span class="text-[var(--color-fg-muted)]">Three taps. No store.</span>
+        </h2>
+
+        <div class="mt-12 grid gap-px bg-[var(--color-border)] md:grid-cols-3 border border-[var(--color-border)] rounded-lg overflow-hidden">
+          {platforms.map((p) => (
+            <div class="bg-[var(--color-bg)] p-6 md:p-8 flex flex-col">
+              <div class="flex items-center gap-3">
+                <svg class="size-7 text-[var(--color-accent)]" viewBox={p.iconViewBox} fill="currentColor" aria-hidden="true">
+                  <path d={p.iconPath} />
+                </svg>
+                <h3 class="text-xl font-semibold">{p.os}</h3>
+              </div>
+              <p class="mt-2 text-xs uppercase tracking-wider text-[var(--color-fg-subtle)]">
+                {p.browsers.join(" · ")}
+              </p>
+
+              <ol class="mt-5 space-y-3 text-sm text-[var(--color-fg-muted)] leading-relaxed">
+                {p.steps.map((s) => (
+                  <li>
+                    <span class="text-[var(--color-fg)] font-medium">{s.label}</span>
+                    <span> — {s.detail}</span>
+                  </li>
+                ))}
+              </ol>
+
+              {p.bonus && (
+                <p class="mt-6 pt-4 border-t border-[var(--color-border)] text-xs text-[var(--color-fg-subtle)] leading-relaxed">
+                  <span class="text-[var(--color-fg-muted)] font-medium">Bonus:</span> {p.bonus}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+
+    <!-- PWA vs NATIVE APP COMPARISON -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24">
+        <div class="max-w-2xl">
+          <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Why PWA</p>
+          <h2 class="mt-3 text-3xl md:text-5xl font-semibold tracking-tight">
+            We could ship a native app.
+            <span class="text-[var(--color-fg-muted)]">We chose not to.</span>
+          </h2>
+          <p class="mt-5 text-lg text-[var(--color-fg-muted)] max-w-xl">
+            Native apps mean app stores, review queues, install friction, and update delays.
+            For a tool that should work in 10 seconds, that's the wrong tradeoff.
+          </p>
+        </div>
+
+        <div class="mt-12 grid gap-px bg-[var(--color-border)] md:grid-cols-2 border border-[var(--color-border)] rounded-lg overflow-hidden">
+          <div class="bg-[var(--color-bg)] p-6 md:p-10">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-wider text-[var(--color-fg-subtle)] font-medium">
+              <span class="size-1.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
+              Native app
+            </div>
+            <h3 class="mt-3 text-xl font-semibold">Slow, gated, fragmented</h3>
+            <ul class="mt-6 space-y-3 text-sm text-[var(--color-fg-muted)]">
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> Wait for Apple/Google review (days)</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> 30-100 MB install</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> Separate codebases for iOS, Android, Windows</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> Users miss updates (manual)</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> 15-30% revenue cut on paid features</li>
+            </ul>
+          </div>
+
+          <div class="bg-[var(--color-bg)] p-6 md:p-10">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-wider text-[var(--color-accent)] font-medium">
+              <span class="size-1.5 rounded-full bg-[var(--color-accent)]"></span>
+              {site.shortName} PWA
+            </div>
+            <h3 class="mt-3 text-xl font-semibold">Instant, open, universal</h3>
+            <ul class="mt-6 space-y-3 text-sm text-[var(--color-fg-muted)]">
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> Ship in seconds — no review queue</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> ~2 MB install (less than one screenshot)</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> Same codebase everywhere</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> Auto-updates in the background</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> No middleman ever takes a cut</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section>
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-20 md:py-28 text-center">
+        <h2 class="text-4xl md:text-6xl font-semibold tracking-tight">Ready to install?</h2>
+        <p class="mt-5 text-lg text-[var(--color-fg-muted)] max-w-xl mx-auto">
+          Open {site.shortName} on the device you want to install it on, and look for the
+          install prompt — usually in the address bar or share menu.
+        </p>
+        <a
+          href={`${import.meta.env.BASE_URL}transfer`}
+          class="mt-10 inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-8 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+        >
+          Open {site.shortName} →
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>
