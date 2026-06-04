@@ -5,6 +5,7 @@
  *   { kind: "chat",   id, text, ts }
  *   { kind: "typing", isTyping }
  *   { kind: "hello",  name }    // nickname exchange on channel open
+ *   { kind: "visibility", hidden }  // peer tab visibility (mobile background detection)
  *
  * Privacy: messages are ephemeral, never persisted, never seen by any server.
  * Same DTLS encryption as file chunks.
@@ -23,6 +24,7 @@ export interface ChatEvents {
   peerTyping: boolean;
   peerDisconnected: void;
   peerHello: { name: string };
+  peerVisibility: { hidden: boolean };
   error: Error;
 }
 
@@ -55,6 +57,8 @@ export class ChatManager {
         } else if (parsed.kind === "hello" && typeof parsed.name === "string") {
           const name = String(parsed.name).trim().slice(0, MAX_NAME_LEN);
           if (name) this.emitter.emit("peerHello", { name });
+        } else if (parsed.kind === "visibility") {
+          this.emitter.emit("peerVisibility", { hidden: Boolean(parsed.hidden) });
         }
       } catch {
         /* not a chat message — file meta or other; ignore */
@@ -92,6 +96,13 @@ export class ChatManager {
     } catch {
       // Channel not open yet — channelOpen handler will retry
     }
+  }
+
+  /** Announce local tab visibility to peer (best-effort, silent on failure). */
+  sendVisibility(hidden: boolean) {
+    try {
+      this.session.send(JSON.stringify({ kind: "visibility", hidden }));
+    } catch { /* channel not ready — ignore */ }
   }
 
   /**

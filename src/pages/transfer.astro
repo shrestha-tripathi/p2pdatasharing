@@ -281,6 +281,15 @@ import { site } from "../site.config";
       <!-- Per-file rows -->
       <ul id="file-list" class="mt-4 space-y-3"></ul>
 
+      <!-- Peer-tab-hidden banner: shown when peer's tab is backgrounded -->
+      <div id="peer-hidden-banner" class="hidden mt-4 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-center gap-3">
+        <svg class="text-amber-500 shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+        <p class="text-sm text-[var(--color-fg)]">
+          <span id="peer-hidden-text">Peer's tab is in the background.</span>
+          <span class="text-[var(--color-fg-muted)]">Mobile browsers throttle hidden tabs — ask them to keep this tab open for steady transfers.</span>
+        </p>
+      </div>
+
       <!-- "Send another / Clear" reset after transfers complete -->
       <div id="reset-bar" class="hidden mt-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 flex-wrap">
         <p class="text-sm text-[var(--color-fg-muted)]">
@@ -421,6 +430,8 @@ import { site } from "../site.config";
     const resetSummary = $("reset-summary");
     const resetClearBtn = $<HTMLButtonElement>("reset-clear");
     const resetSendMoreBtn = $<HTMLButtonElement>("reset-send-more");
+    const peerHiddenBanner = $("peer-hidden-banner");
+    const peerHiddenText = $("peer-hidden-text");
     const warnings = $("warnings");
     // Chat
     const chatPanel = $("chat-panel");
@@ -485,6 +496,17 @@ import { site } from "../site.config";
       clearCompletedRows();
       // Reopen file picker on click (same gesture chain — works on iOS too)
       fileInput.click();
+    });
+
+    // ---------- Local tab visibility → notify peer ----------
+    // Fires whenever this tab goes background/foreground. Peer shows a
+    // banner so they understand why throughput may drop on mobile.
+    let lastVisibility: boolean | null = null;
+    document.addEventListener("visibilitychange", () => {
+      const hidden = document.visibilityState === "hidden";
+      if (hidden === lastVisibility) return;
+      lastVisibility = hidden;
+      chat?.sendVisibility(hidden);
     });
 
 
@@ -965,6 +987,8 @@ import { site } from "../site.config";
       wireChat(chat);
       // Push current local nickname to peer (no-op if empty)
       if (myName) chat.setMyName(myName);
+      // Push current local visibility so peer's banner is correct from t=0
+      chat.sendVisibility(document.visibilityState === "hidden");
       // Listen for peer's nickname announcement
       chat.emitter.on("peerHello", ({ name }) => {
         const isFirst = !peerName;
@@ -979,6 +1003,18 @@ import { site } from "../site.config";
               if (t.textContent?.includes(`👋 ${name} connected`)) t.remove();
             });
           }, 5000);
+        }
+      });
+
+      // Listen for peer's tab visibility — show banner so user knows
+      // why a transfer might suddenly slow down (mobile bg throttling).
+      chat.emitter.on("peerVisibility", ({ hidden }) => {
+        if (hidden) {
+          const who = peerName ? `${peerName}'s tab` : "Peer's tab";
+          peerHiddenText.textContent = `${who} is in the background.`;
+          peerHiddenBanner.classList.remove("hidden");
+        } else {
+          peerHiddenBanner.classList.add("hidden");
         }
       });
 
@@ -1874,6 +1910,7 @@ import { site } from "../site.config";
       completedRecvCount = 0;
       completedRecvBytes = 0;
       resetBar.classList.add("hidden");
+      peerHiddenBanner.classList.add("hidden");
       fileList.innerHTML = "";
       warnings.innerHTML = "";
       transferPanel.classList.add("hidden");
