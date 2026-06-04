@@ -15,9 +15,9 @@ import { site } from "../site.config";
     <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
       <div>
         <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Workspace</p>
-        <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport a file</h1>
+        <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport files</h1>
       </div>
-      <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Paranoid mode skips our signaling server — you copy/paste the handshake yourself">
+      <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Skip our signaling server — copy/paste the handshake yourself">
         <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
         <span class="relative inline-block">
           <input id="paranoid-toggle" type="checkbox" class="peer sr-only" />
@@ -27,8 +27,34 @@ import { site } from "../site.config";
       </label>
     </header>
 
-    <!-- Status card -->
-    <div id="status-card" class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-6">
+    <!-- ROLE PICKER (shown when no role chosen yet) -->
+    <section id="role-picker" class="hidden">
+      <div class="rounded-lg border border-[var(--color-border)] p-6 mb-6">
+        <h2 class="text-xl font-semibold mb-1">What do you want to do?</h2>
+        <p class="text-sm text-[var(--color-fg-muted)] mb-5">
+          Pick a role. You can switch later by refreshing this page.
+        </p>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <button id="role-send" class="text-left rounded-lg border border-[var(--color-border)] p-5 transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-muted)]">
+            <div class="flex items-center gap-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+              <span class="font-semibold">Send files</span>
+            </div>
+            <p class="mt-2 text-sm text-[var(--color-fg-muted)]">I have files to share. Give me a link to send to my peer.</p>
+          </button>
+          <button id="role-receive" class="text-left rounded-lg border border-[var(--color-border)] p-5 transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-muted)]">
+            <div class="flex items-center gap-3">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M19 12H5M11 6l-6 6 6 6"/></svg>
+              <span class="font-semibold">Receive files</span>
+            </div>
+            <p class="mt-2 text-sm text-[var(--color-fg-muted)]">Someone is sending me files. I'll connect manually (paranoid mode).</p>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Status card (hidden until a role is picked) -->
+    <div id="status-card" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-6">
       <div class="flex items-center gap-3">
         <span id="status-dot" class="size-2.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
         <span id="status-label" class="font-medium">Initializing…</span>
@@ -45,7 +71,7 @@ import { site } from "../site.config";
         <button id="copy-link" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] transition-opacity hover:opacity-90">Copy</button>
       </div>
       <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
-        Keep this tab open — closing it drops the connection. Once the receiver loads the link, you can drop a file.
+        Keep this tab open. Once the receiver loads the link, you can drop files.
       </p>
     </section>
 
@@ -54,20 +80,19 @@ import { site } from "../site.config";
       <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-4">
         <p class="text-sm text-[var(--color-fg-muted)]">
           <span class="font-medium text-[var(--color-fg)]">Paranoid mode active.</span>
-          The signaling server is bypassed — you'll exchange a one-time handshake string with your peer over any channel you trust (Signal, email, in person). Once exchanged, the file transfer itself is fully end-to-end encrypted and direct.
+          The signaling server is bypassed — you'll exchange a one-time handshake string with your peer over a channel you trust. The file transfer itself is fully end-to-end encrypted and direct.
         </p>
       </div>
 
-      <!-- ============== SENDER FLOW ============== -->
+      <!-- SENDER FLOW -->
       <div id="paranoid-sender" class="hidden space-y-4">
-        <!-- Step 1: share offer -->
         <div id="psender-step1" class="rounded-lg border-2 border-[var(--color-accent)] p-5 transition-opacity">
           <div class="flex items-center gap-3 mb-3">
             <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-accent)] text-white text-sm font-semibold">1</span>
             <h3 class="font-semibold">Send your invite code to the receiver</h3>
           </div>
           <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-            Copy the code below and send it to the person you want to share with — over Signal, email, WhatsApp, or even paste it into a chat.
+            Copy the code below and send it to your peer — over Signal, email, WhatsApp, or any channel you trust.
           </p>
           <textarea id="sender-offer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Generating invite code…"></textarea>
           <div class="mt-3 flex gap-2">
@@ -76,51 +101,48 @@ import { site } from "../site.config";
           </div>
         </div>
 
-        <!-- Step 2: paste answer -->
         <div id="psender-step2" class="rounded-lg border border-[var(--color-border)] p-5 opacity-40 pointer-events-none transition-opacity">
           <div class="flex items-center gap-3 mb-3">
             <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] text-sm font-semibold">2</span>
             <h3 class="font-semibold">Paste the receiver's reply code</h3>
           </div>
           <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-            The receiver will generate a reply code after they open your invite. Paste it below to finish the handshake.
+            The receiver generates a reply code after opening your invite. Paste it here to finish the handshake.
           </p>
           <textarea id="sender-answer-blob" class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Paste the reply code from the receiver here…"></textarea>
           <button id="sender-submit-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Connect</button>
         </div>
       </div>
 
-      <!-- ============== RECEIVER FLOW ============== -->
+      <!-- RECEIVER FLOW -->
       <div id="paranoid-receiver" class="hidden space-y-4">
-        <!-- Step 1: paste offer -->
         <div id="precv-step1" class="rounded-lg border-2 border-[var(--color-accent)] p-5 transition-opacity">
           <div class="flex items-center gap-3 mb-3">
             <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-accent)] text-white text-sm font-semibold">1</span>
             <h3 class="font-semibold">Paste the sender's invite code</h3>
           </div>
           <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-            Your peer should have sent you a long string starting with a few random characters. Paste it here.
+            Your peer should have sent you a long string. Paste it here.
           </p>
           <textarea id="recv-offer-blob" class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Paste the invite code from the sender here…"></textarea>
           <button id="recv-generate-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Generate reply code</button>
         </div>
 
-        <!-- Step 2: share answer -->
         <div id="precv-step2" class="rounded-lg border border-[var(--color-border)] p-5 opacity-40 pointer-events-none transition-opacity">
           <div class="flex items-center gap-3 mb-3">
             <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] text-sm font-semibold">2</span>
             <h3 class="font-semibold">Send the reply code back to the sender</h3>
           </div>
           <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-            Copy the code below and send it back to the sender. Once they paste it on their end, the transfer connection opens automatically.
+            Copy the code below and send it back to the sender. Connection opens automatically once they paste it.
           </p>
-          <textarea id="recv-answer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs"></textarea>
+          <textarea id="recv-answer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 font-mono text-xs"></textarea>
           <button id="recv-copy-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Copy reply code</button>
         </div>
       </div>
     </section>
 
-    <!-- File drop / transfer panel -->
+    <!-- Transfer workspace -->
     <section id="transfer-panel" class="hidden rounded-lg border border-[var(--color-border)] p-5">
       <!-- Sender drop zone -->
       <div id="drop-zone" class="hidden">
@@ -128,42 +150,23 @@ import { site } from "../site.config";
           for="file-input"
           class="block cursor-pointer rounded-lg border-2 border-dashed border-[var(--color-border-strong)] p-10 text-center transition-colors hover:bg-[var(--color-bg-muted)]"
         >
-          <p class="text-lg font-medium">Drop a file or click to pick</p>
-          <p class="mt-1 text-sm text-[var(--color-fg-muted)]">Any size. Streamed directly to the receiver.</p>
-          <input id="file-input" type="file" class="hidden" />
+          <p class="text-lg font-medium">Drop files or click to pick</p>
+          <p class="mt-1 text-sm text-[var(--color-fg-muted)]">Any size. Multiple files OK. Streamed directly to the receiver.</p>
+          <input id="file-input" type="file" multiple class="hidden" />
         </label>
+        <p class="mt-3 text-xs text-[var(--color-fg-subtle)] text-center">
+          You can keep dropping more files after the current one finishes.
+        </p>
       </div>
 
       <!-- Receiver waiting -->
       <div id="receiver-wait" class="hidden text-center py-10">
         <div class="inline-block size-6 rounded-full border-2 border-[var(--color-border-strong)] border-t-[var(--color-accent)] animate-spin"></div>
-        <p class="mt-4 text-sm text-[var(--color-fg-muted)]">Waiting for sender to drop a file…</p>
+        <p class="mt-4 text-sm text-[var(--color-fg-muted)]">Connected. Waiting for sender to drop a file…</p>
       </div>
 
-      <!-- Progress -->
-      <div id="progress" class="hidden">
-        <div class="flex items-center justify-between text-sm">
-          <span id="prog-name" class="font-medium truncate"></span>
-          <span id="prog-pct" class="text-[var(--color-fg-muted)] tabular-nums"></span>
-        </div>
-        <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
-          <div id="prog-bar" class="h-full w-0 bg-[var(--color-accent)] transition-[width] duration-150"></div>
-        </div>
-        <div class="mt-3 flex justify-between text-xs text-[var(--color-fg-muted)] tabular-nums">
-          <span id="prog-bytes"></span>
-          <span id="prog-rate"></span>
-          <span id="prog-eta"></span>
-        </div>
-      </div>
-
-      <!-- Complete -->
-      <div id="complete" class="hidden text-center py-8">
-        <div class="inline-flex size-12 items-center justify-center rounded-full bg-[var(--color-success)] text-white">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12l5 5L20 7"/></svg>
-        </div>
-        <p id="complete-msg" class="mt-4 text-lg font-medium">Transfer complete</p>
-        <button id="download-btn" class="mt-4 hidden inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-5 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Download file</button>
-      </div>
+      <!-- Per-file rows -->
+      <ul id="file-list" class="mt-4 space-y-3"></ul>
     </section>
 
     <!-- Warnings -->
@@ -176,14 +179,18 @@ import { site } from "../site.config";
 
   <script>
     import { TeleportSession, type PeerConnState } from "../lib/teleportSession";
-    import { FileTransfer, triggerDownload } from "../lib/fileTransfer";
+    import { FileTransfer, saveFileToDisk } from "../lib/fileTransfer";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
     import { site } from "../site.config";
 
-    // --- DOM lookups -----------------------------------------------------
+    // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
       document.getElementById(id) as T;
 
+    const rolePicker = $("role-picker");
+    const roleSendBtn = $<HTMLButtonElement>("role-send");
+    const roleRecvBtn = $<HTMLButtonElement>("role-receive");
+    const statusCard = $("status-card");
     const statusDot = $("status-dot");
     const statusLabel = $("status-label");
     const statusDetail = $("status-detail");
@@ -195,7 +202,6 @@ import { site } from "../site.config";
     const paranoidPanel = $("paranoid-panel");
     const psSender = $("paranoid-sender");
     const psRecv = $("paranoid-receiver");
-    // sender
     const senderOfferBlob = $<HTMLTextAreaElement>("sender-offer-blob");
     const senderCopyOffer = $<HTMLButtonElement>("sender-copy-offer");
     const senderMarkShared = $<HTMLButtonElement>("sender-mark-shared");
@@ -203,30 +209,26 @@ import { site } from "../site.config";
     const psenderStep2 = $("psender-step2");
     const senderAnswerBlob = $<HTMLTextAreaElement>("sender-answer-blob");
     const senderSubmitAnswer = $<HTMLButtonElement>("sender-submit-answer");
-    // receiver
     const recvOfferBlob = $<HTMLTextAreaElement>("recv-offer-blob");
     const recvGenerateAnswer = $<HTMLButtonElement>("recv-generate-answer");
     const precvStep1 = $("precv-step1");
     const precvStep2 = $("precv-step2");
     const recvAnswerBlob = $<HTMLTextAreaElement>("recv-answer-blob");
     const recvCopyAnswer = $<HTMLButtonElement>("recv-copy-answer");
-
     const transferPanel = $("transfer-panel");
     const dropZone = $("drop-zone");
     const fileInput = $<HTMLInputElement>("file-input");
     const receiverWait = $("receiver-wait");
-    const progress = $("progress");
-    const progName = $("prog-name");
-    const progPct = $("prog-pct");
-    const progBar = $("prog-bar");
-    const progBytes = $("prog-bytes");
-    const progRate = $("prog-rate");
-    const progEta = $("prog-eta");
-    const completeEl = $("complete");
-    const completeMsg = $("complete-msg");
-    const downloadBtn = $<HTMLButtonElement>("download-btn");
+    const fileList = $<HTMLUListElement>("file-list");
     const warnings = $("warnings");
 
+    // ---------- State ----------
+    type Role = "sender" | "receiver";
+    let role: Role | null = null;
+    let session: TeleportSession | null = null;
+    let transfer: FileTransfer | null = null;
+
+    // ---------- Helpers ----------
     const setStatus = (s: PeerConnState, detail = "") => {
       const map: Record<PeerConnState, { label: string; color: string }> = {
         idle: { label: "Idle", color: "var(--color-fg-subtle)" },
@@ -250,223 +252,6 @@ import { site } from "../site.config";
       warnings.appendChild(el);
     };
 
-    // --- Role + mode detection ------------------------------------------
-    const params = new URL(location.href);
-    const hashRoom = location.hash.replace(/^#/, "");
-    const queryRoom = params.searchParams.get("r");
-    const initialRoom = hashRoom || queryRoom || "";
-    const isReceiver = !!initialRoom;
-
-    statusRole.textContent = isReceiver ? "Receiver" : "Sender";
-
-    let session: TeleportSession | null = null;
-    let transfer: FileTransfer | null = null;
-
-    const showSenderUI = () => {
-      dropZone.classList.remove("hidden");
-      receiverWait.classList.add("hidden");
-    };
-    const showReceiverUI = () => {
-      dropZone.classList.add("hidden");
-      receiverWait.classList.remove("hidden");
-    };
-
-    const wireSession = (s: TeleportSession) => {
-      transfer = new FileTransfer(s);
-
-      s.emitter.on("state", (state) => {
-        setStatus(state);
-        if (state === "connected") {
-          transferPanel.classList.remove("hidden");
-          senderLink.classList.add("hidden");
-          paranoidPanel.classList.add("hidden");
-          if (isReceiver) showReceiverUI();
-          else showSenderUI();
-
-          // Background tab warning
-          addWarning(
-            "Keep this tab in the foreground during the transfer — background tabs are throttled by the browser.",
-          );
-        }
-      });
-
-      s.emitter.on("error", (e) => {
-        addWarning(e.message);
-        setStatus("failed", e.message);
-      });
-
-      transfer.emitter.on("sendStart", (m) => startProgressUI(m.name));
-      transfer.emitter.on("receiveStart", (m) => {
-        receiverWait.classList.add("hidden");
-        startProgressUI(m.name);
-      });
-      transfer.emitter.on("sendProgress", updateProgress);
-      transfer.emitter.on("receiveProgress", updateProgress);
-      transfer.emitter.on("sendComplete", (m) => {
-        progress.classList.add("hidden");
-        completeEl.classList.remove("hidden");
-        completeMsg.textContent = `Sent ${m.name} (${formatBytes(m.size)})`;
-        downloadBtn.classList.add("hidden");
-      });
-      transfer.emitter.on("receiveComplete", ({ meta, file }) => {
-        progress.classList.add("hidden");
-        completeEl.classList.remove("hidden");
-        completeMsg.textContent = `Received ${meta.name} (${formatBytes(meta.size)})`;
-        downloadBtn.classList.remove("hidden");
-        downloadBtn.onclick = () => triggerDownload(file, meta.name);
-      });
-      transfer.emitter.on("error", (e) => addWarning(e.message));
-    };
-
-    const startProgressUI = (name: string) => {
-      completeEl.classList.add("hidden");
-      progress.classList.remove("hidden");
-      progName.textContent = name;
-      progPct.textContent = "0%";
-      progBar.style.width = "0%";
-      progBytes.textContent = "0 B / —";
-      progRate.textContent = "0 B/s";
-      progEta.textContent = "ETA —";
-    };
-
-    const updateProgress = (p: { bytes: number; total: number; ratePerSec: number; etaSec: number }) => {
-      const pct = p.total > 0 ? Math.min(100, (p.bytes / p.total) * 100) : 0;
-      progPct.textContent = `${pct.toFixed(1)}%`;
-      progBar.style.width = `${pct}%`;
-      progBytes.textContent = `${formatBytes(p.bytes)} / ${formatBytes(p.total)}`;
-      progRate.textContent = formatRate(p.ratePerSec);
-      progEta.textContent = `ETA ${formatEta(p.etaSec)}`;
-    };
-
-    // --- File picker / drag ---------------------------------------------
-    const onPickFile = (file: File) => {
-      if (!transfer) return;
-      dropZone.classList.add("hidden");
-      transfer.send(file).catch((e) => addWarning(e.message));
-    };
-    fileInput.addEventListener("change", () => {
-      const f = fileInput.files?.[0];
-      if (f) onPickFile(f);
-    });
-    document.addEventListener("dragover", (e) => e.preventDefault());
-    document.addEventListener("drop", (e) => {
-      e.preventDefault();
-      const f = e.dataTransfer?.files?.[0];
-      if (f) onPickFile(f);
-    });
-
-    // --- Boot ------------------------------------------------------------
-    const bootAuto = async () => {
-      session = new TeleportSession({ signalingUrl: site.signalingUrl });
-      wireSession(session);
-      setStatus("signaling", "Connecting to signaling server…");
-
-      if (isReceiver) {
-        await session.joinAuto(initialRoom);
-      } else {
-        const room = generateRoomId();
-        const url = `${location.origin}${import.meta.env.BASE_URL}transfer#${room}`;
-        shareLink.value = url;
-        senderLink.classList.remove("hidden");
-        await session.hostAuto(room);
-      }
-    };
-
-    const bootManual = async () => {
-      session = new TeleportSession({ signalingUrl: site.signalingUrl });
-      wireSession(session);
-      paranoidPanel.classList.remove("hidden");
-      senderLink.classList.add("hidden");
-
-      // Reset both flows
-      psSender.classList.add("hidden");
-      psRecv.classList.add("hidden");
-      senderOfferBlob.value = "";
-      senderAnswerBlob.value = "";
-      recvOfferBlob.value = "";
-      recvAnswerBlob.value = "";
-      lockStep(psenderStep2, true);
-      lockStep(precvStep2, true);
-      senderCopyOffer.disabled = true;
-      senderMarkShared.disabled = true;
-
-      if (isReceiver) {
-        psRecv.classList.remove("hidden");
-        setStatus("signaling", "Step 1 — paste the sender's invite code below.");
-
-        recvGenerateAnswer.onclick = async () => {
-          const blob = recvOfferBlob.value.trim();
-          const kind = peekBlobType(blob);
-          if (kind !== "offer") {
-            addWarning(
-              kind === "answer"
-                ? "That looks like a reply code, not an invite code. Reply codes go on the sender's side — make sure you pasted the right one."
-                : kind === "empty"
-                ? "Paste the invite code from the sender first."
-                : "That doesn't look like a valid invite code. Ask the sender to copy it again — it should be a long string of letters/numbers/+/=.",
-            );
-            return;
-          }
-          recvGenerateAnswer.disabled = true;
-          recvGenerateAnswer.textContent = "Generating…";
-          try {
-            const answer = await session!.joinManual(blob);
-            recvAnswerBlob.value = answer;
-            lockStep(precvStep1, true);
-            lockStep(precvStep2, false);
-            setStatus("signaling", "Step 2 — copy the reply code and send it back to the sender.");
-          } catch (e) {
-            addWarning((e as Error).message);
-            recvGenerateAnswer.disabled = false;
-            recvGenerateAnswer.textContent = "Generate reply code";
-          }
-        };
-      } else {
-        psSender.classList.remove("hidden");
-        setStatus("signaling", "Generating your invite code…");
-        try {
-          const offer = await session.hostManual();
-          senderOfferBlob.value = offer;
-          senderCopyOffer.disabled = false;
-          senderMarkShared.disabled = false;
-          setStatus("signaling", "Step 1 — share the invite code with the receiver.");
-
-          senderMarkShared.onclick = () => {
-            lockStep(psenderStep1, true);
-            lockStep(psenderStep2, false);
-            setStatus("signaling", "Step 2 — paste the receiver's reply code below.");
-            senderAnswerBlob.focus();
-          };
-
-          senderSubmitAnswer.onclick = async () => {
-            const blob = senderAnswerBlob.value.trim();
-            const kind = peekBlobType(blob);
-            if (kind !== "answer") {
-              addWarning(
-                kind === "offer"
-                  ? "That looks like another invite code, not a reply code. The receiver needs to first paste your invite code, then send you back the *reply* code they generate."
-                  : kind === "empty"
-                  ? "Paste the receiver's reply code first."
-                  : "That doesn't look like a valid reply code. Ask the receiver to copy it again — it should be a long string of letters/numbers/+/=.",
-              );
-              return;
-            }
-            senderSubmitAnswer.disabled = true;
-            senderSubmitAnswer.textContent = "Connecting…";
-            try {
-              await session!.acceptManualAnswer(blob);
-            } catch (e) {
-              addWarning((e as Error).message);
-              senderSubmitAnswer.disabled = false;
-              senderSubmitAnswer.textContent = "Connect";
-            }
-          };
-        } catch (e) {
-          addWarning((e as Error).message);
-        }
-      }
-    };
-
     const lockStep = (el: HTMLElement, locked: boolean) => {
       if (locked) {
         el.classList.add("opacity-40", "pointer-events-none");
@@ -479,7 +264,6 @@ import { site } from "../site.config";
       }
     };
 
-    /** Inspect a base64-encoded SDP blob and report what type it is. */
     const peekBlobType = (blob: string): "offer" | "answer" | "empty" | "invalid" => {
       if (!blob || !blob.trim()) return "empty";
       try {
@@ -491,19 +275,361 @@ import { site } from "../site.config";
       }
     };
 
-    // Reboot on paranoid toggle change.
-    const boot = () => {
-      session?.destroy();
-      transferPanel.classList.add("hidden");
-      progress.classList.add("hidden");
-      completeEl.classList.add("hidden");
-      warnings.innerHTML = "";
-      if (paranoidToggle.checked) bootManual();
-      else bootAuto();
+    // ---------- File row UI ----------
+    type Row = {
+      el: HTMLLIElement;
+      bar: HTMLElement;
+      pct: HTMLElement;
+      bytes: HTMLElement;
+      rate: HTMLElement;
+      eta: HTMLElement;
+      action: HTMLElement;
+      name: string;
+    };
+    const sendingRows: Row[] = [];
+    let activeSendRow: Row | null = null;
+    const receivingRows: Row[] = [];
+    let activeRecvRow: Row | null = null;
+
+    const makeRow = (name: string, kind: "send" | "recv"): Row => {
+      const el = document.createElement("li");
+      el.className = "rounded-lg border border-[var(--color-border)] p-4";
+      el.innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-bg-muted)] uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">
+              ${kind === "send" ? "Sending" : "Receiving"}
+            </span>
+            <span class="font-medium truncate" data-field="name"></span>
+          </div>
+          <span class="text-sm text-[var(--color-fg-muted)] tabular-nums" data-field="pct">0%</span>
+        </div>
+        <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+          <div class="h-full w-0 bg-[var(--color-accent)] transition-[width] duration-150" data-field="bar"></div>
+        </div>
+        <div class="mt-3 flex justify-between text-xs text-[var(--color-fg-muted)] tabular-nums">
+          <span data-field="bytes">0 B / —</span>
+          <span data-field="rate">0 B/s</span>
+          <span data-field="eta">ETA —</span>
+        </div>
+        <div data-field="action" class="mt-3 hidden"></div>
+      `;
+      const q = (s: string) => el.querySelector(`[data-field="${s}"]`) as HTMLElement;
+      q("name").textContent = name;
+      fileList.appendChild(el);
+      return {
+        el, name,
+        bar: q("bar"),
+        pct: q("pct"),
+        bytes: q("bytes"),
+        rate: q("rate"),
+        eta: q("eta"),
+        action: q("action"),
+      };
     };
 
-    paranoidToggle.addEventListener("change", boot);
+    const updateRow = (row: Row, p: { bytes: number; total: number; ratePerSec: number; etaSec: number }) => {
+      const pct = p.total > 0 ? Math.min(100, (p.bytes / p.total) * 100) : 0;
+      row.pct.textContent = `${pct.toFixed(1)}%`;
+      row.bar.style.width = `${pct}%`;
+      row.bytes.textContent = `${formatBytes(p.bytes)} / ${formatBytes(p.total)}`;
+      row.rate.textContent = formatRate(p.ratePerSec);
+      row.eta.textContent = `ETA ${formatEta(p.etaSec)}`;
+    };
 
+    // ---------- Wire session ----------
+    const wireSession = (s: TeleportSession) => {
+      transfer = new FileTransfer(s);
+
+      s.emitter.on("state", (state) => {
+        setStatus(state);
+        if (state === "connected") {
+          transferPanel.classList.remove("hidden");
+          senderLink.classList.add("hidden");
+          paranoidPanel.classList.add("hidden");
+          if (role === "receiver") {
+            dropZone.classList.add("hidden");
+            receiverWait.classList.remove("hidden");
+          } else {
+            receiverWait.classList.add("hidden");
+            dropZone.classList.remove("hidden");
+          }
+          addWarning(
+            "Keep this tab in the foreground during transfer — background tabs are throttled by the browser.",
+          );
+        }
+      });
+
+      s.emitter.on("error", (e) => {
+        addWarning(e.message);
+        setStatus("failed", e.message);
+      });
+
+      transfer.emitter.on("sendStart", (m) => {
+        activeSendRow = makeRow(m.name, "send");
+        sendingRows.push(activeSendRow);
+      });
+      transfer.emitter.on("sendProgress", (p) => {
+        if (activeSendRow) updateRow(activeSendRow, p);
+      });
+      transfer.emitter.on("sendComplete", (m) => {
+        if (activeSendRow) {
+          activeSendRow.action.classList.remove("hidden");
+          activeSendRow.action.innerHTML = `<span class="text-sm text-[var(--color-success)]">✓ Sent ${formatBytes(m.size)}</span>`;
+        }
+        activeSendRow = null;
+      });
+
+      transfer.emitter.on("receiveStart", (m) => {
+        receiverWait.classList.add("hidden");
+        activeRecvRow = makeRow(m.name, "recv");
+        receivingRows.push(activeRecvRow);
+      });
+      transfer.emitter.on("receiveProgress", (p) => {
+        if (activeRecvRow) updateRow(activeRecvRow, p);
+      });
+      transfer.emitter.on("receiveComplete", ({ meta, file }) => {
+        if (activeRecvRow) {
+          const row = activeRecvRow;
+          row.action.classList.remove("hidden");
+          row.action.innerHTML = `
+            <div class="flex items-center gap-2 flex-wrap">
+              <button class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90" data-act="save">Save to disk</button>
+              <span class="text-xs text-[var(--color-fg-subtle)]" data-act="hint">Pick where to save the file on your device</span>
+            </div>
+          `;
+          const btn = row.action.querySelector('[data-act="save"]') as HTMLButtonElement;
+          const hint = row.action.querySelector('[data-act="hint"]') as HTMLElement;
+          btn.onclick = async () => {
+            btn.disabled = true;
+            btn.textContent = "Saving…";
+            try {
+              const result = await saveFileToDisk(file, meta.name);
+              if (result === "saved") {
+                btn.textContent = "✓ Saved to disk";
+                hint.textContent = "File written to the location you chose.";
+              } else if (result === "downloaded") {
+                btn.textContent = "✓ Downloaded";
+                hint.textContent = "Browser saved it to your Downloads folder.";
+              } else {
+                btn.disabled = false;
+                btn.textContent = "Save to disk";
+                hint.textContent = "Save cancelled — click again to retry.";
+              }
+            } catch (e) {
+              btn.disabled = false;
+              btn.textContent = "Save to disk";
+              addWarning((e as Error).message);
+            }
+          };
+        }
+        activeRecvRow = null;
+      });
+
+      transfer.emitter.on("error", (e) => addWarning(e.message));
+    };
+
+    // ---------- File picker / DnD ----------
+    const onPickFiles = (files: FileList | null) => {
+      if (!files || files.length === 0 || !transfer) return;
+      transfer.sendMultiple(files).catch((e) => addWarning(e.message));
+    };
+    fileInput.addEventListener("change", () => {
+      onPickFiles(fileInput.files);
+      fileInput.value = "";
+    });
+    document.addEventListener("dragover", (e) => e.preventDefault());
+    document.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (role !== "sender") return; // ignore drops on receiver side
+      onPickFiles(e.dataTransfer?.files ?? null);
+    });
+
+    // ---------- Boot per role ----------
+    const showStatus = () => statusCard.classList.remove("hidden");
+
+    const bootAutoSender = async () => {
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      wireSession(session);
+      setStatus("signaling", "Connecting to signaling server…");
+      const room = generateRoomId();
+      const url = `${location.origin}${import.meta.env.BASE_URL}transfer?r=${room}`;
+      shareLink.value = url;
+      senderLink.classList.remove("hidden");
+      await session.hostAuto(room);
+    };
+
+    const bootAutoReceiver = async (room: string) => {
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      wireSession(session);
+      setStatus("signaling", "Connecting to sender…");
+      await session.joinAuto(room);
+    };
+
+    const resetParanoidUI = () => {
+      psSender.classList.add("hidden");
+      psRecv.classList.add("hidden");
+      senderOfferBlob.value = "";
+      senderAnswerBlob.value = "";
+      recvOfferBlob.value = "";
+      recvAnswerBlob.value = "";
+      lockStep(psenderStep1, false);
+      lockStep(psenderStep2, true);
+      lockStep(precvStep1, false);
+      lockStep(precvStep2, true);
+      senderCopyOffer.disabled = true;
+      senderMarkShared.disabled = true;
+      senderSubmitAnswer.disabled = false;
+      senderSubmitAnswer.textContent = "Connect";
+      recvGenerateAnswer.disabled = false;
+      recvGenerateAnswer.textContent = "Generate reply code";
+    };
+
+    const bootParanoidSender = async () => {
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      wireSession(session);
+      paranoidPanel.classList.remove("hidden");
+      resetParanoidUI();
+      psSender.classList.remove("hidden");
+      setStatus("signaling", "Generating your invite code…");
+
+      const offer = await session.hostManual();
+      senderOfferBlob.value = offer;
+      senderCopyOffer.disabled = false;
+      senderMarkShared.disabled = false;
+      setStatus("signaling", "Step 1 — share the invite code with the receiver.");
+
+      senderMarkShared.onclick = () => {
+        lockStep(psenderStep1, true);
+        lockStep(psenderStep2, false);
+        setStatus("signaling", "Step 2 — paste the receiver's reply code below.");
+        senderAnswerBlob.focus();
+      };
+      senderSubmitAnswer.onclick = async () => {
+        const blob = senderAnswerBlob.value.trim();
+        const kind = peekBlobType(blob);
+        if (kind !== "answer") {
+          addWarning(
+            kind === "offer"
+              ? "That looks like another invite code, not a reply code. The receiver needs to paste your invite first, then send you back the *reply* they generate."
+              : kind === "empty"
+              ? "Paste the receiver's reply code first."
+              : "That doesn't look like a valid reply code. Ask the receiver to copy it again.",
+          );
+          return;
+        }
+        senderSubmitAnswer.disabled = true;
+        senderSubmitAnswer.textContent = "Connecting…";
+        try {
+          await session!.acceptManualAnswer(blob);
+        } catch (e) {
+          addWarning((e as Error).message);
+          senderSubmitAnswer.disabled = false;
+          senderSubmitAnswer.textContent = "Connect";
+        }
+      };
+    };
+
+    const bootParanoidReceiver = async () => {
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      wireSession(session);
+      paranoidPanel.classList.remove("hidden");
+      resetParanoidUI();
+      psRecv.classList.remove("hidden");
+      setStatus("signaling", "Step 1 — paste the sender's invite code below.");
+
+      recvGenerateAnswer.onclick = async () => {
+        const blob = recvOfferBlob.value.trim();
+        const kind = peekBlobType(blob);
+        if (kind !== "offer") {
+          addWarning(
+            kind === "answer"
+              ? "That looks like a reply code, not an invite. Reply codes go on the sender's side."
+              : kind === "empty"
+              ? "Paste the invite code from the sender first."
+              : "That doesn't look like a valid invite code. Ask the sender to copy it again.",
+          );
+          return;
+        }
+        recvGenerateAnswer.disabled = true;
+        recvGenerateAnswer.textContent = "Generating…";
+        try {
+          const answer = await session!.joinManual(blob);
+          recvAnswerBlob.value = answer;
+          lockStep(precvStep1, true);
+          lockStep(precvStep2, false);
+          setStatus("signaling", "Step 2 — copy the reply code and send it back to the sender.");
+        } catch (e) {
+          addWarning((e as Error).message);
+          recvGenerateAnswer.disabled = false;
+          recvGenerateAnswer.textContent = "Generate reply code";
+        }
+      };
+    };
+
+    const bootRole = () => {
+      session?.destroy();
+      session = null;
+      transfer = null;
+      sendingRows.length = 0;
+      receivingRows.length = 0;
+      activeSendRow = null;
+      activeRecvRow = null;
+      fileList.innerHTML = "";
+      warnings.innerHTML = "";
+      transferPanel.classList.add("hidden");
+      senderLink.classList.add("hidden");
+      paranoidPanel.classList.add("hidden");
+      showStatus();
+      statusRole.textContent = role === "receiver" ? "Receiver" : "Sender";
+
+      const paranoid = paranoidToggle.checked;
+      if (role === "sender") {
+        if (paranoid) bootParanoidSender();
+        else bootAutoSender();
+      } else {
+        if (paranoid) bootParanoidReceiver();
+        else {
+          const room = new URL(location.href).searchParams.get("r") || location.hash.replace(/^#/, "");
+          if (!room) {
+            addWarning("Receiver needs an invite link from the sender. Ask them to copy and send you their link.");
+            return;
+          }
+          bootAutoReceiver(room);
+        }
+      }
+    };
+
+    // ---------- Role picker ----------
+    const params = new URL(location.href);
+    const presetRoom = params.searchParams.get("r") || location.hash.replace(/^#/, "");
+
+    if (presetRoom) {
+      // Auto-detect: someone gave us an invite link → we're the receiver.
+      role = "receiver";
+      bootRole();
+    } else {
+      rolePicker.classList.remove("hidden");
+    }
+
+    roleSendBtn.onclick = () => {
+      role = "sender";
+      rolePicker.classList.add("hidden");
+      bootRole();
+    };
+    roleRecvBtn.onclick = () => {
+      role = "receiver";
+      // Force paranoid for receivers without a link.
+      paranoidToggle.checked = true;
+      rolePicker.classList.add("hidden");
+      bootRole();
+    };
+
+    paranoidToggle.addEventListener("change", () => {
+      if (role) bootRole();
+    });
+
+    // ---------- Misc ----------
     copyLinkBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(shareLink.value);
       copyLinkBtn.textContent = "Copied!";
@@ -520,14 +646,10 @@ import { site } from "../site.config";
       setTimeout(() => (recvCopyAnswer.textContent = "Copy reply code"), 1500);
     });
 
-    // Visibility warning when tab goes background mid-transfer.
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && !progress.classList.contains("hidden")) {
+      if (document.visibilityState === "hidden" && activeSendRow) {
         addWarning("Tab moved to background — transfer may slow until you return.");
       }
     });
-
-    // GO.
-    boot();
   </script>
 </Layout>
