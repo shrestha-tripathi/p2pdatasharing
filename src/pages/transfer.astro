@@ -186,22 +186,79 @@ import { site } from "../site.config";
         <p class="text-sm text-[var(--color-fg-muted)] mb-3">
           The sender should have given you a link like
           <code class="font-mono text-xs">https://…/transfer?r=abc123</code>.
-          You can also just paste the room ID (the part after <code class="font-mono text-xs">?r=</code>).
+          You can also just paste the room ID (the part after <code class="font-mono text-xs">?r=</code>),
+          or scan the sender's QR code.
         </p>
         <div class="flex gap-2">
           <input
             id="role-receive-link"
             type="text"
             placeholder="https://… or just the room ID"
-            class="flex-1 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
+            class="flex-1 min-w-0 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
           />
-          <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40" disabled>Join</button>
+          <button
+            id="role-receive-scan"
+            type="button"
+            class="h-10 px-3 rounded-md border border-[var(--color-border)] text-sm font-medium hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-1.5 shrink-0"
+            title="Scan the sender's QR code with your camera"
+            aria-label="Scan QR code"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+              <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+              <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+              <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+              <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+              <rect x="7" y="7" width="10" height="10" rx="1"/>
+            </svg>
+            <span class="hidden sm:inline">Scan QR</span>
+          </button>
+          <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40 shrink-0" disabled>Join</button>
         </div>
         <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
           No link yet? Ask the sender to copy theirs, or use
           <button id="role-receive-paranoid" class="underline hover:text-[var(--color-fg)]">paranoid mode</button>
           to exchange a manual handshake instead.
         </p>
+      </div>
+
+      <!--
+        QR scanner modal — opens when the Scan button above is tapped.
+        Uses native BarcodeDetector with a jsQR fallback. Pulled into its
+        own dialog so the camera preview can fill a sensible area on phones
+        without disrupting the rest of the role picker.
+      -->
+      <div
+        id="qr-scan-modal"
+        class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm px-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="qr-scan-title"
+      >
+        <div class="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-3 border-b border-[var(--color-border)]">
+            <h3 id="qr-scan-title" class="font-semibold">Scan invite QR code</h3>
+            <button
+              id="qr-scan-close"
+              type="button"
+              class="size-8 inline-flex items-center justify-center rounded-md text-[var(--color-fg-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)]"
+              aria-label="Close scanner"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="relative bg-black aspect-square">
+            <!-- Live camera preview -->
+            <video id="qr-scan-video" class="w-full h-full object-cover" playsinline muted></video>
+            <!-- Centered framing reticle so users know where to point -->
+            <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+              <div class="size-2/3 max-w-[260px] max-h-[260px] border-2 border-white/80 rounded-lg shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"></div>
+            </div>
+            <div id="qr-scan-status" class="hidden absolute inset-0 flex items-center justify-center text-center px-6 text-white text-sm bg-black/85"></div>
+          </div>
+          <div class="px-5 py-3 text-xs text-[var(--color-fg-muted)] border-t border-[var(--color-border)]">
+            Point your camera at the sender's QR code. We'll join automatically when it's detected.
+          </div>
+        </div>
       </div>
 
     </section>
@@ -632,6 +689,7 @@ import { site } from "../site.config";
     import { site } from "../site.config";
     import QRCode from "qrcode";
     import { downloadZip } from "client-zip";
+    import { startQrScanner, type ScannerController } from "../lib/qrScanner";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -643,7 +701,13 @@ import { site } from "../site.config";
     const roleReceiveInput = $("role-receive-input");
     const roleReceiveLink = $<HTMLInputElement>("role-receive-link");
     const roleReceiveGo = $<HTMLButtonElement>("role-receive-go");
+    const roleReceiveScan = $<HTMLButtonElement>("role-receive-scan");
     const roleReceiveParanoid = $<HTMLButtonElement>("role-receive-paranoid");
+    // QR scanner modal refs
+    const qrScanModal = $("qr-scan-modal");
+    const qrScanClose = $<HTMLButtonElement>("qr-scan-close");
+    const qrScanVideo = $<HTMLVideoElement>("qr-scan-video");
+    const qrScanStatus = $("qr-scan-status");
     const statusCard = $("status-card");
     const statusDot = $("status-dot");
     const statusLabel = $("status-label");
@@ -3537,6 +3601,92 @@ import { site } from "../site.config";
       rolePicker.classList.add("hidden");
       bootRole();
     };
+
+    // ---------- QR scan flow (receiver side, non-paranoid) ----------
+    // The Scan button opens a modal with a live camera feed. When a QR is
+    // decoded we run it through the same extractRoomId() the paste/Join
+    // flow uses, so any QR encoding a transfer URL OR a bare room ID works.
+    let qrScannerController: ScannerController | null = null;
+
+    const setScanStatus = (msg: string | null) => {
+      if (!msg) {
+        qrScanStatus.classList.add("hidden");
+        qrScanStatus.textContent = "";
+        return;
+      }
+      qrScanStatus.textContent = msg;
+      qrScanStatus.classList.remove("hidden");
+    };
+
+    const closeQrScanner = () => {
+      qrScannerController?.stop();
+      qrScannerController = null;
+      qrScanModal.classList.add("hidden");
+      setScanStatus(null);
+    };
+
+    const openQrScanner = async () => {
+      qrScanModal.classList.remove("hidden");
+      setScanStatus("Starting camera…");
+      try {
+        const controller = await startQrScanner({
+          video: qrScanVideo,
+          onResult: (text) => {
+            const room = extractRoomId(text);
+            if (!room) {
+              // Decoded something, but it wasn't a valid invite. Show a hint
+              // and reopen so the user can try another QR.
+              const wasOpen = !qrScanModal.classList.contains("hidden");
+              closeQrScanner();
+              if (wasOpen) {
+                setTimeout(() => {
+                  qrScanModal.classList.remove("hidden");
+                  setScanStatus("That QR doesn't look like a transfer invite. Try the sender's QR again.");
+                  setTimeout(openQrScanner, 1800);
+                }, 0);
+              }
+              return;
+            }
+            // Got a valid room — close the scanner, populate the input, and
+            // press Join programmatically. Reuses the same code path as the
+            // manual paste flow, so we don't fork the join logic.
+            closeQrScanner();
+            roleReceiveLink.value = text;
+            roleReceiveGo.disabled = false;
+            roleReceiveGo.click();
+          },
+          onError: (msg) => {
+            // Set status; do NOT clear it after the await — that race was
+            // wiping legitimate camera errors (caught by Browserbase smoke
+            // test which has no camera).
+            setScanStatus(msg);
+          },
+        });
+        qrScannerController = controller;
+        // Only clear "Starting camera…" if no error was raised. Calling
+        // setScanStatus(null) unconditionally here erased onError messages.
+        if (qrScanStatus.textContent === "Starting camera…") {
+          setScanStatus(null);
+        }
+      } catch (err) {
+        // Defensive — startQrScanner already handles its own errors via
+        // onError, but a synchronous throw before that would land here.
+        setScanStatus(`Couldn't open the camera: ${(err as Error)?.message ?? "unknown error"}`);
+      }
+    };
+
+    roleReceiveScan.onclick = openQrScanner;
+    qrScanClose.onclick = closeQrScanner;
+    // Click on the dim backdrop (outside the dialog box) → close.
+    qrScanModal.addEventListener("click", (e) => {
+      if (e.target === qrScanModal) closeQrScanner();
+    });
+    // Escape to close — standard modal UX.
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !qrScanModal.classList.contains("hidden")) {
+        closeQrScanner();
+      }
+    });
 
     // Retry handlers (sender side, after a connection failure)
     retryBtn.onclick = () => {
