@@ -3,12 +3,13 @@ import "../styles/global.css";
 import { site } from "../site.config";
 
 interface Props {
-  title?: string;
+  title: string;
   description?: string;
+  noindex?: boolean;
 }
 
-const { title, description = site.description } = Astro.props;
-const fullTitle = title ? `${title} — ${site.shortName}` : `${site.name} — ${site.tagline}`;
+const { title, description = site.description, noindex = false } = Astro.props;
+const fullTitle = `${title} | ${site.shortName}`;
 const canonical = new URL(Astro.url.pathname, site.url).toString();
 ---
 
@@ -16,20 +17,26 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
 <html lang={site.locale}>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <meta name="author" content={site.author} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonical} />
+
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+
     <meta name="generator" content={Astro.generator} />
-    <title>{fullTitle}</title>
   </head>
-  <body>
+  <body class="antialiased selection:bg-[var(--color-accent)] selection:text-white">
     <slot />
   </body>
 </html>

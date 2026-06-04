@@ -1,3 +1,6 @@
+# Server deps
+server/node_modules/
+
 # build output
 dist/
 .astro/

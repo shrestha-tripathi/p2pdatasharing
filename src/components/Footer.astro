@@ -1,0 +1,18 @@
+---
+import { site } from "../site.config";
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-[var(--color-border)] mt-24">
+  <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <p class="text-sm text-[var(--color-fg-muted)]">
+      © {year} {site.name} — files never touch a server.
+    </p>
+    <div class="flex gap-5 text-sm">
+      <a href="/" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Home</a>
+      <a href="/how-it-works" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">How it works</a>
+      <a href="/privacy" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Privacy</a>
+      <a href="/transfer" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">App</a>
+    </div>
+  </div>
+</footer>

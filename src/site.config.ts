@@ -1,28 +1,32 @@
 /**
  * Central site configuration — single source of truth for brand name,
- * domain, tagline, and SEO meta. Override via environment variables
- * (PUBLIC_SITE_NAME, PUBLIC_SITE_DOMAIN, etc.) when the domain is finalized.
+ * domain, signaling endpoint, and SEO meta. Override via PUBLIC_* env vars.
  *
- * Nothing in /src should hardcode the name "p2pdatesharing" — always
- * import from here so a rename is one env var away.
+ * Nothing in /src should hardcode the brand name — always import from here so
+ * a domain rename is one `.env` edit away.
  */
 
 const env = import.meta.env;
 
 export const site = {
-  name: env.PUBLIC_SITE_NAME ?? "P2P Date Sharing",
-  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "P2PShare",
-  domain: env.PUBLIC_SITE_DOMAIN ?? "p2pdatesharing.local",
-  url: env.PUBLIC_SITE_URL ?? "https://p2pdatesharing.local",
+  name: env.PUBLIC_SITE_NAME ?? "Local Teleport",
+  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "Local Teleport",
+  domain: env.PUBLIC_SITE_DOMAIN ?? "p2pdatasharing.local",
+  url: env.PUBLIC_SITE_URL ?? "https://p2pdatasharing.local",
   tagline:
     env.PUBLIC_SITE_TAGLINE ??
-    "Peer-to-peer file sharing — files never touch a server.",
+    "Zero-cloud P2P file teleporter — browser to browser, never through a server.",
   description:
     env.PUBLIC_SITE_DESCRIPTION ??
-    "Send files directly browser-to-browser using WebRTC. End-to-end encrypted, zero uploads, no signup.",
+    "Send files of any size directly browser-to-browser with WebRTC. No uploads, no signup, no size limits. End-to-end encrypted by default.",
   author: env.PUBLIC_SITE_AUTHOR ?? "Shrestha Tripathi",
   locale: env.PUBLIC_SITE_LOCALE ?? "en-US",
   twitter: env.PUBLIC_SITE_TWITTER ?? "",
+  /**
+   * Public WebSocket URL of the signaling server. Used only for SDP/ICE
+   * handshake — zero file bytes ever flow through it.
+   */
+  signalingUrl: env.PUBLIC_SIGNALING_URL ?? "ws://localhost:8080",
 } as const;
 
 export type SiteConfig = typeof site;

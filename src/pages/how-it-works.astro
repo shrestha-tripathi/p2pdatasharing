@@ -1,0 +1,129 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+---
+
+<Layout
+  title="How browser-to-browser file transfer works"
+  description="Deep technical guide to WebRTC data channels, the Origin Private File System (OPFS), and chunked secure UDP streaming used by Local Teleport."
+>
+  <Nav />
+
+  <main class="mx-auto max-w-[860px] px-6 md:px-12 py-16 md:py-24">
+    <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Technical Deep Dive</p>
+    <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">How it works</h1>
+    <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
+      A complete walkthrough of the architecture — every byte's journey from
+      sender's disk to receiver's disk, and the four browser APIs that make it
+      possible without a cloud.
+    </p>
+
+    <hr class="my-12 border-[var(--color-border)]" />
+
+    <section class="prose-body space-y-5 text-[var(--color-fg-muted)] leading-relaxed">
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight">1. The signaling handshake</h2>
+      <p>
+        WebRTC peers can only talk to each other once they've exchanged session
+        descriptions (SDP) and ICE candidates. A lightweight WebSocket server —
+        the only piece of cloud infrastructure in the system — acts as a router
+        for these small text messages. It sees the metadata, never the files.
+      </p>
+      <p>
+        Once both peers have an open <code class="font-mono text-[var(--color-fg)]">RTCPeerConnection</code>,
+        the signaling channel closes. From that point on, the two browsers talk directly.
+      </p>
+
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight mt-12">2. Secure UDP transport with DTLS</h2>
+      <p>
+        WebRTC data channels run over <strong class="text-[var(--color-fg)]">SCTP on top of DTLS</strong>.
+        Translation: encrypted by default, NAT-traversing UDP. There is no opt-in step for encryption —
+        if a data channel is open, it is end-to-end encrypted.
+      </p>
+      <pre class="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 text-xs text-[var(--color-fg)]"><code>{`const peer = new RTCPeerConnection({
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+});
+const channel = peer.createDataChannel('file-payload');
+channel.binaryType = 'arraybuffer';`}</code></pre>
+
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight mt-12">3. Streaming 100GB without crashing the browser</h2>
+      <p>
+        Naively reading a 100GB file into memory is a one-way ticket to a browser crash.
+        We use the <code class="font-mono text-[var(--color-fg)]">File.stream()</code> API to pull the file in
+        chunks, ship each chunk over the data channel, and pause when the
+        outbound buffer fills up.
+      </p>
+      <pre class="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 text-xs text-[var(--color-fg)]"><code>{`const CHUNK_SIZE = 16384; // 16 KB — WebRTC's friendly default
+const reader = file.stream().getReader();
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  if (channel.bufferedAmount > channel.bufferedAmountLowThreshold) {
+    await new Promise(r => channel.onbufferedamountlow = r);
+  }
+  channel.send(value);
+}`}</code></pre>
+
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight mt-12">4. Writing to disk with OPFS</h2>
+      <p>
+        On the receiver side, each chunk goes straight to the
+        <strong class="text-[var(--color-fg)]"> Origin Private File System</strong> — a per-origin sandboxed
+        disk that browsers expose via <code class="font-mono text-[var(--color-fg)]">navigator.storage.getDirectory()</code>.
+        OPFS is fast (no IPC roundtrip) and durable, so RAM stays flat even mid-100GB transfer.
+      </p>
+      <pre class="overflow-x-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 text-xs text-[var(--color-fg)]"><code>{`const root = await navigator.storage.getDirectory();
+const draft = await root.getFileHandle(meta.name, { create: true });
+const writer = await draft.createWritable();
+await writer.write({ type: 'write', data: chunk, position: offset });`}</code></pre>
+
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight mt-12">5. Architectural flow</h2>
+      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 my-4">
+        <svg viewBox="0 0 800 260" class="w-full h-auto text-[var(--color-fg)]">
+          <defs>
+            <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+            </marker>
+          </defs>
+          <!-- Sender -->
+          <rect x="20" y="60" width="180" height="120" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <text x="110" y="100" text-anchor="middle" font-size="14" fill="currentColor" font-weight="600">Sender Browser</text>
+          <text x="110" y="125" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">File.stream() → chunks</text>
+          <text x="110" y="145" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">RTCDataChannel.send()</text>
+
+          <!-- Signaling -->
+          <rect x="310" y="10" width="180" height="60" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4,4" />
+          <text x="400" y="36" text-anchor="middle" font-size="13" fill="currentColor" font-weight="600">Signaling Server</text>
+          <text x="400" y="54" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">(SDP / ICE only)</text>
+
+          <!-- Receiver -->
+          <rect x="600" y="60" width="180" height="120" rx="8" fill="none" stroke="currentColor" stroke-width="1.5" />
+          <text x="690" y="100" text-anchor="middle" font-size="14" fill="currentColor" font-weight="600">Receiver Browser</text>
+          <text x="690" y="125" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">RTCDataChannel.onmessage</text>
+          <text x="690" y="145" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">OPFS write → local disk</text>
+
+          <!-- Arrows: handshake -->
+          <line x1="200" y1="80" x2="310" y2="40" stroke="currentColor" stroke-width="1.2" marker-end="url(#arrow)" />
+          <line x1="600" y1="80" x2="490" y2="40" stroke="currentColor" stroke-width="1.2" marker-end="url(#arrow)" />
+
+          <!-- Direct P2P -->
+          <line x1="200" y1="140" x2="600" y2="140" stroke="currentColor" stroke-width="2.5" marker-end="url(#arrow)" />
+          <text x="400" y="130" text-anchor="middle" font-size="12" fill="currentColor" font-weight="600">Encrypted P2P data channel (DTLS/SCTP)</text>
+
+          <text x="400" y="225" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.6">
+            File bytes never traverse the signaling server.
+          </text>
+        </svg>
+      </div>
+
+      <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight mt-12">6. Edge cases we handle</h2>
+      <ul class="list-disc pl-6 space-y-2">
+        <li><strong class="text-[var(--color-fg)]">Symmetric NAT:</strong> after 15s without a connected state, the UI shows a fallback message and offers manual SDP exchange.</li>
+        <li><strong class="text-[var(--color-fg)]">Background-tab throttling:</strong> we warn the user to keep the transfer tab focused during large transfers.</li>
+        <li><strong class="text-[var(--color-fg)]">OPFS quota:</strong> we call <code class="font-mono text-[var(--color-fg)]">navigator.storage.estimate()</code> before any write to make sure the receiver has the disk space.</li>
+        <li><strong class="text-[var(--color-fg)]">Paranoid mode:</strong> skip the signaling server entirely — manually paste the SDP offer and answer between peers.</li>
+      </ul>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>

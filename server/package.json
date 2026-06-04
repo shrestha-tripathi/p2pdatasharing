@@ -1,0 +1,18 @@
+{
+  "name": "local-teleport-signaling",
+  "version": "0.1.0",
+  "description": "Stateless WebSocket signaling server for Local Teleport. Routes SDP/ICE between peers — file bytes never touch it.",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}
