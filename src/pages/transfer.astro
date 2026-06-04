@@ -75,7 +75,12 @@ import { site } from "../site.config";
 
         <!-- Add-device flow: shows QR + URL for pairing -->
         <div id="devices-add-panel" class="hidden mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4">
-          <p class="text-sm">Open this on your other device to pair:</p>
+          <label class="block text-xs text-[var(--color-fg-muted)]">
+            Name this device (so you can recognize it later)
+            <input id="devices-add-name" type="text" maxlength="40" placeholder="e.g. My Laptop, Work Mac, Tablet"
+              class="mt-1 w-full h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm focus:outline-none focus:border-[var(--color-accent)]" />
+          </label>
+          <p class="mt-4 text-sm">Then open this on that device to pair:</p>
           <div class="mt-3 flex gap-2">
             <input id="devices-pair-url" type="text" readonly
               class="flex-1 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-xs focus:outline-none" />
@@ -2884,6 +2889,7 @@ import { site } from "../site.config";
     // ---------- My Devices wiring ----------
     const devicesAddBtn = $<HTMLButtonElement>("devices-add");
     const devicesAddPanel = $("devices-add-panel");
+    const devicesAddName = $<HTMLInputElement>("devices-add-name");
     const devicesAddDone = $<HTMLButtonElement>("devices-add-done");
     const devicesPairUrl = $<HTMLInputElement>("devices-pair-url");
     const devicesPairCopy = $<HTMLButtonElement>("devices-pair-copy");
@@ -2950,6 +2956,8 @@ import { site } from "../site.config";
       const url = buildPairUrl(location.origin, import.meta.env.BASE_URL, pendingPairSecret, myName);
       devicesPairUrl.value = url;
       devicesAddPanel.classList.remove("hidden");
+      devicesAddName.value = "";
+      devicesAddName.focus();
       devicesPairQr.innerHTML = "";
       try {
         const canvas = document.createElement("canvas");
@@ -2980,8 +2988,11 @@ import { site } from "../site.config";
       // The pair is one-sided until the other device opens it — but storing here
       // means auto-host will start looking for it immediately.
       if (pendingPairSecret) {
+        const customName = devicesAddName.value.trim();
         const myName = (localStorage.getItem("p2pds:name") || "").trim();
-        upsertPair(pendingPairSecret, myName ? `${myName}'s other device` : "Other device", true);
+        const label = customName
+          || (myName ? `${myName}'s other device` : "Other device");
+        upsertPair(pendingPairSecret, label, true);
       }
       pendingPairSecret = "";
       devicesAddPanel.classList.add("hidden");
