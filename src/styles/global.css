@@ -27,6 +27,7 @@ html[data-theme="dark"] {
   --color-fg-subtle: #737373;
   --color-accent: #3291ff;
   --color-success: #3291ff;
+  --color-online: #22c55e;
   --color-warning: #f7b955;
   --color-danger: #ff4444;
   color-scheme: dark;
@@ -43,6 +44,7 @@ html[data-theme="light"] {
   --color-fg-subtle: #737373;
   --color-accent: #0070f3;
   --color-success: #0070f3;
+  --color-online: #16a34a;
   --color-warning: #f5a623;
   --color-danger: #ee0000;
   color-scheme: light;
@@ -80,4 +82,16 @@ h1, h2, h3, h4 {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Presence dot — green + breathing pulse to read as "alive" */
+.presence-dot-online {
+  background-color: var(--color-online);
+  box-shadow: 0 0 0 0 var(--color-online);
+  animation: presence-pulse 2s ease-out infinite;
+}
+@keyframes presence-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.6); }
+  70%  { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
 }

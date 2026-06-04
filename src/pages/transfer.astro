@@ -2589,7 +2589,7 @@ import { site } from "../site.config";
         li.className = "flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3";
         const dot = document.createElement("span");
         const isActive = activePair?.secret === p.secret;
-        dot.className = `size-2 rounded-full shrink-0 ${isActive ? "bg-[var(--color-success)]" : "bg-[var(--color-fg-subtle)]"}`;
+        dot.className = `size-2.5 rounded-full shrink-0 ${isActive ? "presence-dot-online" : "bg-[var(--color-fg-subtle)]"}`;
         dot.title = isActive ? "Connected" : "Offline";
         dot.dataset.field = "presence";
         li.appendChild(dot);
