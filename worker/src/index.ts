@@ -181,6 +181,27 @@ export class RoomDO implements DurableObject {
       this.pendingForJoiner = [];
     }
 
+    // If this is the second peer joining a room where the first peer is
+    // already established (no buffered offer), notify the host to restart
+    // the handshake. Fixes the "refresh one device, other side stuck"
+    // reconnect bug: without this, the existing host has a stale PC and
+    // never sends a fresh offer to the newly-arrived second peer.
+    if (isSecondPeer) {
+      for (const peer of this.peers) {
+        if (peer !== ws && peer.readyState === WebSocket.READY_STATE_OPEN) {
+          try {
+            // Re-assign the existing peer as host (they're now alone-then-paired,
+            // so by definition they're "first in room" again). Then tell them
+            // to restart the handshake against the freshly-arrived second peer.
+            peer.send(JSON.stringify({ type: "role", payload: { role: "host" } }));
+            peer.send(JSON.stringify({ type: "peer-rejoined" }));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+
     ws.addEventListener("message", (event) => {
       if (this.peers.size < 2) {
         // No peer to forward to yet — buffer for the future joiner.

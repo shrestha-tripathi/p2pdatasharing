@@ -250,6 +250,35 @@ export class TeleportSession {
    * Resolves once role is assigned and the appropriate handshake has been
    * kicked off. The session reaches "connected" via the normal state events.
    */
+  /**
+   * Tear down the stale RTCPeerConnection and rebuild as host — used
+   * when the worker tells us the other side reconnected. We promote to
+   * host regardless of previous role (worker just re-assigned us).
+   */
+  private async restartAsHost() {
+    // Tear down old PC + DC.
+    try { this.dataChannel?.close(); } catch { /* noop */ }
+    try { this.peer.close(); } catch { /* noop */ }
+    this.dataChannel = null;
+    this.cachedCandidates = [];
+    this.candidatesReceived = 0;
+    this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+
+    // Rebuild PC with same ICE config.
+    const cfg = { iceServers: this.opts.iceServers ?? DEFAULT_ICE };
+    this.peer = new RTCPeerConnection(cfg);
+    this.wireUpPeer();
+    this.role = "sender";
+
+    const ch = this.peer.createDataChannel("file-payload");
+    this.attachChannel(ch);
+    const offer = await this.peer.createOffer();
+    await this.peer.setLocalDescription(offer);
+    this.cachedOffer = offer;
+    this.sendSignal({ type: "offer", payload: offer });
+    this.emitter.emit("state", "signaling");
+  }
+
   async connectAuto(roomId: string): Promise<"sender" | "receiver"> {
     this.roomId = roomId;
     this.emitter.emit("state", "signaling");
@@ -389,6 +418,15 @@ export class TeleportSession {
         }
       } else if (msg.type === "error") {
         this.emitter.emit("error", new Error((msg.payload as { message: string }).message));
+      } else if (msg.type === "peer-rejoined") {
+        // The other side refreshed / re-connected. Our existing PC is
+        // stale (its remote description points at a dead session). Tear
+        // it down and start a fresh handshake — but ONLY if we're host.
+        // Joiner just waits for the new offer.
+        this.emitter.emit("log", "peer rejoined — rebuilding handshake");
+        await this.restartAsHost().catch((err) =>
+          this.emitter.emit("log", `restartAsHost failed: ${String(err)}`),
+        );
       }
     };
     this.ws.onerror = () =>
@@ -518,7 +556,7 @@ export class TeleportSession {
 }
 
 interface SignalMessage {
-  type: "offer" | "answer" | "candidate" | "join" | "error" | "role";
+  type: "offer" | "answer" | "candidate" | "join" | "error" | "role" | "peer-rejoined";
   payload: unknown;
 }
 
