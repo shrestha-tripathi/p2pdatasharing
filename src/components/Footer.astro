@@ -10,9 +10,10 @@ const b = (p: string) => `${base}${p}`;
     <p class="text-sm text-[var(--color-fg-muted)]">
       © {year} {site.name} — files never touch a server.
     </p>
-    <div class="flex gap-5 text-sm">
+    <div class="flex flex-wrap gap-5 text-sm">
       <a href={b("/")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Home</a>
       <a href={b("/how-it-works")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">How it works</a>
+      <a href={b("/local-network")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Local network</a>
       <a href={b("/faq")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">FAQ</a>
       <a href={b("/install")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Install</a>
       <a href={b("/privacy")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Privacy</a>

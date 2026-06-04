@@ -1,0 +1,355 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+/**
+ * /local-network — LAN-focused landing page.
+ *
+ * Why this page exists:
+ *   - "Send files local network", "browser airdrop", "snapdrop alternative",
+ *     "localsend web", "nearby file sharing" are all high-volume queries
+ *     that we currently DON'T rank for because our home page leads with
+ *     "across any network" cross-network framing.
+ *   - This page intercepts that LAN-first intent and converts it: yes we
+ *     work on LAN (and faster than any cloud tool), AND we keep working
+ *     when the receiver walks out the door.
+ *
+ * Competitor positioning:
+ *   - AirDrop = Apple-only, 30m radius
+ *   - LocalSend = native install, LAN-only
+ *   - Snapdrop / PairDrop = browser, LAN-only (mDNS / WebSocket-on-LAN)
+ *   - We = browser, LAN AND remote, persistent device pairing
+ *
+ * H1 + meta intentionally lead with "browser-based airdrop" + "snapdrop
+ * alternative" wording.
+ */
+
+// SoftwareApplication subtype: focuses Google on the LAN use case for this page.
+const lanAppSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "@id": `${site.url}/local-network#webapp`,
+  name: `${site.name} — Local Network Mode`,
+  alternateName: [
+    "Browser-based AirDrop",
+    "Snapdrop alternative",
+    "LocalSend in the browser",
+    "Nearby device file sharing",
+  ],
+  url: `${site.url}/local-network`,
+  description: `Send files between devices on the same WiFi network — no app install, no AirDrop required, no Apple-only restrictions. Works in any browser, on any OS.`,
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Any (Chrome, Firefox, Safari, Edge — Android, iOS, Windows, macOS, Linux)",
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  featureList: [
+    "Browser-to-browser file transfer over WebRTC",
+    "Works on the same WiFi or hotspot — true LAN speeds",
+    "Falls back to internet if devices leave the network",
+    "Cross-platform: iPhone ↔ Android ↔ Windows ↔ Mac",
+    "No app store, no install",
+    "Persistent device pairing",
+  ],
+  publisher: { "@id": `${site.url}/#organization` },
+};
+
+const competitors = [
+  {
+    name: "Apple AirDrop",
+    works: "Apple devices only (iPhone ↔ Mac)",
+    range: "~30m Bluetooth + WiFi peer",
+    install: "Built-in (iOS / macOS only)",
+    crossNetwork: "No — same room / Bluetooth range",
+    rating: "warn",
+  },
+  {
+    name: "LocalSend",
+    works: "Cross-platform",
+    range: "Same WiFi only",
+    install: "Native app install on every device",
+    crossNetwork: "No — LAN only",
+    rating: "warn",
+  },
+  {
+    name: "Snapdrop / PairDrop",
+    works: "Cross-platform browser",
+    range: "Same WiFi only (mDNS discovery)",
+    install: "None (browser PWA)",
+    crossNetwork: "No — drops when devices switch network",
+    rating: "warn",
+  },
+  {
+    name: site.shortName,
+    works: "Cross-platform browser",
+    range: "Same WiFi AND remote (WebRTC + STUN/TURN)",
+    install: "None (browser PWA, optional install)",
+    crossNetwork: "Yes — keeps working when receiver leaves the network",
+    rating: "ok",
+  },
+];
+---
+
+<Layout
+  title="Send files on the same WiFi network — browser-based AirDrop, no app needed"
+  description={`The browser-based AirDrop that works on any device. Send files between phones, laptops, and tablets on the same WiFi — no app to install, no Apple-only restrictions. Falls back to remote transfer when devices leave the network.`}
+  jsonLd={[lanAppSchema]}
+>
+  <Nav />
+
+  <main>
+    <!-- HERO -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-20 md:py-32">
+        <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">
+          Local network · Browser AirDrop · Same WiFi
+        </p>
+        <h1 class="mt-4 text-5xl md:text-7xl font-semibold tracking-tight max-w-4xl">
+          The browser AirDrop.
+          <span class="text-[var(--color-fg-muted)]">For every device, on any network.</span>
+        </h1>
+        <p class="mt-6 max-w-2xl text-lg md:text-xl text-[var(--color-fg-muted)]">
+          Send files between phones, laptops, and tablets on the same WiFi —
+          straight from the browser, no app to install. Cross-platform: iPhone ↔
+          Android ↔ Windows ↔ Mac ↔ Linux. And unlike AirDrop, Snapdrop, or
+          LocalSend — it keeps working when devices leave the network.
+        </p>
+        <div class="mt-10 flex flex-wrap gap-3">
+          <a
+            href={`${import.meta.env.BASE_URL}transfer`}
+            class="inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-6 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+          >
+            Open the app →
+          </a>
+          <a
+            href={`${import.meta.env.BASE_URL}how-it-works`}
+            class="inline-flex h-12 items-center rounded-lg border border-[var(--color-border)] px-6 text-sm font-medium text-[var(--color-fg)] no-underline transition-colors hover:bg-[var(--color-bg-muted)]"
+          >
+            How it works
+          </a>
+        </div>
+
+        <div class="mt-10 flex flex-wrap gap-2.5">
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            iPhone ↔ Android works
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            Near-LAN speeds
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            Auto-falls-back to remote
+          </span>
+          <span class="inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-subtle)] px-3.5 py-2 text-sm text-[var(--color-fg)]">
+            <svg class="size-4 text-[var(--color-accent)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 12l2 2 4-4"/><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/></svg>
+            No file size limit
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <!-- WHY IT'S FAST ON LAN -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24 grid md:grid-cols-2 gap-12 items-center">
+        <div>
+          <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Why it's fast</p>
+          <h2 class="mt-3 text-3xl md:text-4xl font-semibold tracking-tight">
+            When both devices are on the same WiFi, your data doesn't even leave the building.
+          </h2>
+          <p class="mt-5 text-[var(--color-fg-muted)] leading-relaxed">
+            WebRTC's ICE protocol always picks the <strong class="text-[var(--color-fg)]">shortest network path</strong>
+            between two peers. If your phone and laptop are both on the same router,
+            that path is your router — not the internet.
+          </p>
+          <p class="mt-3 text-[var(--color-fg-muted)] leading-relaxed">
+            That means transfer speeds limited only by your <strong class="text-[var(--color-fg)]">router and WiFi</strong>:
+            typically 100-300 Mbit/s on modern WiFi 6, vs the 10-30 Mbit/s upload bottleneck
+            you'd hit on most cloud upload tools. <strong class="text-[var(--color-fg)]">5-10x faster, easily.</strong>
+          </p>
+          <p class="mt-3 text-[var(--color-fg-muted)] leading-relaxed">
+            A 10GB file that would take 30+ minutes to upload-then-download via the cloud
+            transfers in 4-5 minutes directly device-to-device on the same WiFi.
+          </p>
+        </div>
+
+        <!-- LAN illustration -->
+        <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6">
+          <svg viewBox="0 0 360 240" class="w-full h-auto text-[var(--color-fg)]" aria-hidden="true">
+            <defs>
+              <marker id="lan-arr" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0,0 L8,4 L0,8 z" fill="var(--color-accent)" />
+              </marker>
+              <linearGradient id="lan-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.5"/>
+                <stop offset="50%" stop-color="var(--color-accent)" stop-opacity="1"/>
+                <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.5"/>
+              </linearGradient>
+            </defs>
+
+            <!-- Router box in center -->
+            <rect x="145" y="100" width="70" height="40" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text x="180" y="124" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">Router</text>
+            <text x="180" y="158" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.55">Your WiFi</text>
+            <!-- WiFi waves around router -->
+            <circle cx="180" cy="120" r="55" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity="0.3"/>
+            <circle cx="180" cy="120" r="80" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="3 4" opacity="0.15"/>
+
+            <!-- Sender (phone) -->
+            <rect x="20" y="95" width="55" height="80" rx="8" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="26" y="103" width="43" height="55" rx="3" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+            <text x="47.5" y="190" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">📱 Phone</text>
+
+            <!-- Receiver (laptop) -->
+            <polygon points="295,100 360,100 365,150 290,150" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <rect x="296,103" width="58" height="40" fill="none" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>
+            <line x1="280" y1="158" x2="375" y2="158" stroke="currentColor" stroke-width="1.5"/>
+            <text x="327.5" y="190" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">💻 Laptop</text>
+
+            <!-- Direct line via router -->
+            <path d="M 75 130 Q 110 105 145 115" fill="none" stroke="url(#lan-line)" stroke-width="2.5" stroke-linecap="round"/>
+            <path d="M 215 115 Q 250 105 295 125" fill="none" stroke="url(#lan-line)" stroke-width="2.5" stroke-linecap="round" marker-end="url(#lan-arr)"/>
+
+            <text x="180" y="35" text-anchor="middle" font-size="12" fill="var(--color-accent)" font-weight="600">Path stays on your WiFi</text>
+            <text x="180" y="52" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.6">Data never leaves your router</text>
+
+            <text x="180" y="220" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">100-300 Mbit/s typical · limited only by your WiFi</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARISON TABLE: alternatives -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24">
+        <div class="max-w-2xl">
+          <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">vs. the alternatives</p>
+          <h2 class="mt-3 text-3xl md:text-5xl font-semibold tracking-tight">
+            AirDrop. Snapdrop. LocalSend.
+            <span class="text-[var(--color-fg-muted)]">And what we do differently.</span>
+          </h2>
+          <p class="mt-5 text-lg text-[var(--color-fg-muted)] max-w-xl">
+            They all work for LAN. None of them keep working when devices switch
+            networks — but yours might. So {site.shortName} handles both.
+          </p>
+        </div>
+
+        <div class="mt-12 overflow-x-auto rounded-lg border border-[var(--color-border)]">
+          <table class="w-full text-sm">
+            <thead class="bg-[var(--color-bg-subtle)] border-b border-[var(--color-border)]">
+              <tr>
+                <th class="text-left px-4 py-3 font-semibold text-[var(--color-fg)]">Tool</th>
+                <th class="text-left px-4 py-3 font-semibold text-[var(--color-fg)]">Works on</th>
+                <th class="text-left px-4 py-3 font-semibold text-[var(--color-fg)]">Range</th>
+                <th class="text-left px-4 py-3 font-semibold text-[var(--color-fg)]">Install</th>
+                <th class="text-left px-4 py-3 font-semibold text-[var(--color-fg)]">Cross-network?</th>
+              </tr>
+            </thead>
+            <tbody>
+              {competitors.map((c) => (
+                <tr class={c.rating === "ok"
+                  ? "bg-[color-mix(in_srgb,var(--color-accent)_14%,transparent)] border-t border-[var(--color-accent)]"
+                  : "border-t border-[var(--color-border)]"}>
+                  <td class={c.rating === "ok"
+                    ? "px-4 py-3 font-semibold text-[var(--color-accent)] flex items-center gap-2"
+                    : "px-4 py-3 font-medium text-[var(--color-fg)]"}>
+                    {c.rating === "ok" && <span class="inline-block size-2 rounded-full bg-[var(--color-accent)]"></span>}
+                    {c.name}
+                  </td>
+                  <td class={c.rating === "ok" ? "px-4 py-3 text-[var(--color-fg)]" : "px-4 py-3 text-[var(--color-fg-muted)]"}>{c.works}</td>
+                  <td class={c.rating === "ok" ? "px-4 py-3 text-[var(--color-fg)]" : "px-4 py-3 text-[var(--color-fg-muted)]"}>{c.range}</td>
+                  <td class={c.rating === "ok" ? "px-4 py-3 text-[var(--color-fg)]" : "px-4 py-3 text-[var(--color-fg-muted)]"}>{c.install}</td>
+                  <td class={c.rating === "ok" ? "px-4 py-3 text-[var(--color-fg)] font-medium" : "px-4 py-3 text-[var(--color-fg-muted)]"}>{c.crossNetwork}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mt-6 text-sm text-[var(--color-fg-subtle)] max-w-2xl">
+          AirDrop, Snapdrop, and LocalSend are all great LAN tools — but they stop the moment one
+          device leaves the network. {site.shortName} is the only one that handles both, with
+          the same UX, no extra setup.
+        </p>
+      </div>
+    </section>
+
+    <!-- USE CASES -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24">
+        <h2 class="text-3xl md:text-5xl font-semibold tracking-tight max-w-2xl">
+          Real situations where the LAN-first design helps.
+        </h2>
+
+        <div class="mt-12 grid gap-px bg-[var(--color-border)] sm:grid-cols-2 lg:grid-cols-3 border border-[var(--color-border)] rounded-lg overflow-hidden">
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">📷 Phone photos → laptop</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              200 vacation photos from your phone to your laptop. AirDrop needs both to be Apple.
+              Bluetooth is glacial. Cable means digging for one. Browser-to-browser on the same
+              WiFi: drop and done in 90 seconds.
+            </p>
+          </div>
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">🎬 Video file → friend's iPad</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              5 GB video you want to show them. Cloud upload would crawl on your home internet's
+              upload speed. Same WiFi, browser-to-browser: minutes, not hours.
+            </p>
+          </div>
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">💼 Presentation → client's laptop</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              Meeting room, both on guest WiFi. AirDrop won't help (mixed Apple + Windows).
+              Snapdrop sometimes works, sometimes doesn't. Browser → browser: a QR scan and go.
+            </p>
+          </div>
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">📥 Download from your other device</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              File on your work laptop, you need it on your personal phone. Pair the two devices
+              once — next time, it's a single tap. No QR, no link sharing, no email-to-self.
+            </p>
+          </div>
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">🛜 Hotel WiFi between rooms</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              Same hotel WiFi between you and your partner's room. Most hotel networks block
+              peer-to-peer, but our TURN fallback kicks in automatically. Other LAN tools
+              just fail silently.
+            </p>
+          </div>
+          <div class="bg-[var(--color-bg)] p-6 md:p-8">
+            <h3 class="text-lg font-semibold">🏠 Family on the same router</h3>
+            <p class="mt-2 text-[var(--color-fg-muted)] text-sm leading-relaxed">
+              A document for your parents on the next floor. No need to install LocalSend or
+              teach them what AirDrop is. Open URL, scan QR, file appears.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section>
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-20 md:py-28 text-center">
+        <h2 class="text-4xl md:text-6xl font-semibold tracking-tight">
+          Same WiFi or across the world.
+        </h2>
+        <p class="mt-5 text-lg text-[var(--color-fg-muted)] max-w-xl mx-auto">
+          One app for both. Open {site.shortName}, scan a QR, drop a file.
+          Faster than AirDrop on LAN. Still works after they leave.
+        </p>
+        <a
+          href={`${import.meta.env.BASE_URL}transfer`}
+          class="mt-10 inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-8 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+        >
+          Open the app →
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>
