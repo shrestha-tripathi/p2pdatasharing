@@ -2201,9 +2201,26 @@ import { site } from "../site.config";
     let qrCurrentUrl = "";
     const renderQrCode = async (url: string) => {
       qrCurrentUrl = url;
-      qrWrap.classList.add("hidden");
-      qrToggleLabel.textContent = "Show QR code";
+      // Auto-expand the QR by default for invite links — most people scan
+      // rather than copy/paste, and the extra click was friction.
       qrCanvasBox.innerHTML = "";
+      try {
+        const canvas = document.createElement("canvas");
+        await QRCode.toCanvas(canvas, url, {
+          width: 220,
+          margin: 1,
+          errorCorrectionLevel: "M",
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+        qrCanvasBox.appendChild(canvas);
+        qrWrap.classList.remove("hidden");
+        qrToggleLabel.textContent = "Hide QR code";
+      } catch (e) {
+        // Quietly fall back to the toggle UX if QR gen fails.
+        qrWrap.classList.add("hidden");
+        qrToggleLabel.textContent = "Show QR code";
+        addWarning(`Failed to generate QR: ${(e as Error).message}`);
+      }
     };
 
     qrToggle.addEventListener("click", async () => {
@@ -2214,15 +2231,17 @@ import { site } from "../site.config";
       }
       if (!qrCurrentUrl) return;
       try {
-        const canvas = document.createElement("canvas");
-        await QRCode.toCanvas(canvas, qrCurrentUrl, {
-          width: 220,
-          margin: 1,
-          errorCorrectionLevel: "M",
-          color: { dark: "#000000", light: "#ffffff" },
-        });
-        qrCanvasBox.innerHTML = "";
-        qrCanvasBox.appendChild(canvas);
+        // Re-render in case canvas was cleared.
+        if (!qrCanvasBox.firstChild) {
+          const canvas = document.createElement("canvas");
+          await QRCode.toCanvas(canvas, qrCurrentUrl, {
+            width: 220,
+            margin: 1,
+            errorCorrectionLevel: "M",
+            color: { dark: "#000000", light: "#ffffff" },
+          });
+          qrCanvasBox.appendChild(canvas);
+        }
         qrWrap.classList.remove("hidden");
         qrToggleLabel.textContent = "Hide QR code";
       } catch (e) {
