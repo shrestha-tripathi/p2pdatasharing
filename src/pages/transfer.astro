@@ -169,6 +169,48 @@ import { site } from "../site.config";
       <ul id="file-list" class="mt-4 space-y-3"></ul>
     </section>
 
+    <!-- Chat panel (only shown after connection) -->
+    <section id="chat-panel" class="hidden mt-6 rounded-lg border border-[var(--color-border)] overflow-hidden flex flex-col">
+      <header class="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg-subtle)] flex items-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="text-[var(--color-fg-muted)]">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <h2 class="text-sm font-semibold">Chat</h2>
+        <span class="ml-auto text-xs text-[var(--color-fg-subtle)]">End-to-end encrypted · Not saved anywhere</span>
+      </header>
+
+      <div id="chat-scroll" class="px-5 py-4 h-72 overflow-y-auto space-y-2 bg-[var(--color-bg)]">
+        <p id="chat-empty" class="text-center text-sm text-[var(--color-fg-subtle)] py-12">
+          No messages yet. Say hi 👋
+        </p>
+      </div>
+
+      <div id="typing-indicator" class="hidden px-5 pb-2 flex items-center gap-2 text-xs text-[var(--color-fg-muted)]">
+        <span class="inline-flex gap-1">
+          <span class="size-1.5 rounded-full bg-[var(--color-fg-muted)] animate-pulse" style="animation-delay: 0ms"></span>
+          <span class="size-1.5 rounded-full bg-[var(--color-fg-muted)] animate-pulse" style="animation-delay: 150ms"></span>
+          <span class="size-1.5 rounded-full bg-[var(--color-fg-muted)] animate-pulse" style="animation-delay: 300ms"></span>
+        </span>
+        Peer is typing…
+      </div>
+
+      <form id="chat-form" class="border-t border-[var(--color-border)] p-3 flex gap-2 items-end bg-[var(--color-bg-subtle)]">
+        <textarea
+          id="chat-input"
+          rows="1"
+          placeholder="Type a message…"
+          maxlength="2000"
+          class="flex-1 resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm leading-snug max-h-32 focus:outline-none focus:border-[var(--color-accent)]"
+        ></textarea>
+        <button
+          id="chat-send"
+          type="submit"
+          disabled
+          class="h-10 px-4 rounded-md bg-[var(--color-fg)] text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+        >Send</button>
+      </form>
+    </section>
+
     <!-- Warnings -->
     <div id="warnings" class="mt-6 space-y-3"></div>
 
@@ -180,6 +222,7 @@ import { site } from "../site.config";
   <script>
     import { TeleportSession, type PeerConnState } from "../lib/teleportSession";
     import { FileTransfer, saveFileToDisk } from "../lib/fileTransfer";
+    import { ChatManager, type ChatMessage } from "../lib/chat";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
     import { site } from "../site.config";
 
@@ -221,12 +264,22 @@ import { site } from "../site.config";
     const receiverWait = $("receiver-wait");
     const fileList = $<HTMLUListElement>("file-list");
     const warnings = $("warnings");
+    // Chat
+    const chatPanel = $("chat-panel");
+    const chatScroll = $<HTMLDivElement>("chat-scroll");
+    const chatEmpty = $("chat-empty");
+    const typingIndicator = $("typing-indicator");
+    const chatForm = $<HTMLFormElement>("chat-form");
+    const chatInput = $<HTMLTextAreaElement>("chat-input");
+    const chatSend = $<HTMLButtonElement>("chat-send");
 
     // ---------- State ----------
     type Role = "sender" | "receiver";
     let role: Role | null = null;
     let session: TeleportSession | null = null;
     let transfer: FileTransfer | null = null;
+    let chat: ChatManager | null = null;
+    let lastMessageTs = 0;
 
     // ---------- Helpers ----------
     const setStatus = (s: PeerConnState, detail = "") => {
@@ -340,6 +393,8 @@ import { site } from "../site.config";
     // ---------- Wire session ----------
     const wireSession = (s: TeleportSession) => {
       transfer = new FileTransfer(s);
+      chat = new ChatManager(s);
+      wireChat(chat);
 
       s.emitter.on("state", (state) => {
         setStatus(state);
@@ -347,6 +402,7 @@ import { site } from "../site.config";
           transferPanel.classList.remove("hidden");
           senderLink.classList.add("hidden");
           paranoidPanel.classList.add("hidden");
+          chatPanel.classList.remove("hidden");
           if (role === "receiver") {
             dropZone.classList.add("hidden");
             receiverWait.classList.remove("hidden");
@@ -357,6 +413,11 @@ import { site } from "../site.config";
           addWarning(
             "Keep this tab in the foreground during transfer — background tabs are throttled by the browser.",
           );
+        }
+        if (state === "disconnected" || state === "failed") {
+          chatSend.disabled = true;
+          chatInput.disabled = true;
+          chatInput.placeholder = "Peer disconnected";
         }
       });
 
@@ -447,6 +508,109 @@ import { site } from "../site.config";
 
     // ---------- Boot per role ----------
     const showStatus = () => statusCard.classList.remove("hidden");
+
+    // ---------- Chat UI ----------
+    const formatTime = (ts: number): string => {
+      const d = new Date(ts);
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    };
+
+    const isNearBottom = () => {
+      const slack = 80; // px
+      return chatScroll.scrollHeight - chatScroll.scrollTop - chatScroll.clientHeight < slack;
+    };
+
+    const appendBubble = (msg: ChatMessage, mine: boolean) => {
+      chatEmpty.classList.add("hidden");
+
+      const stickToBottom = isNearBottom();
+      const showTimestamp = msg.ts - lastMessageTs > 5 * 60 * 1000;
+      lastMessageTs = msg.ts;
+
+      const wrap = document.createElement("div");
+      wrap.className = `flex flex-col ${mine ? "items-end" : "items-start"}`;
+
+      const bubble = document.createElement("div");
+      bubble.className = mine
+        ? "max-w-[75%] rounded-2xl rounded-br-md bg-[var(--color-accent)] text-white px-3 py-2 text-sm break-words whitespace-pre-wrap"
+        : "max-w-[75%] rounded-2xl rounded-bl-md bg-[var(--color-bg-muted)] text-[var(--color-fg)] px-3 py-2 text-sm break-words whitespace-pre-wrap";
+      bubble.textContent = msg.text; // textContent — never innerHTML (XSS-safe)
+      wrap.appendChild(bubble);
+
+      if (showTimestamp) {
+        const time = document.createElement("span");
+        time.className = "mt-1 text-[10px] text-[var(--color-fg-subtle)] tabular-nums";
+        time.textContent = formatTime(msg.ts);
+        wrap.appendChild(time);
+      }
+
+      chatScroll.appendChild(wrap);
+      if (stickToBottom) chatScroll.scrollTop = chatScroll.scrollHeight;
+    };
+
+    const wireChat = (c: ChatManager) => {
+      c.emitter.on("message", (msg) => appendBubble(msg, false));
+      c.emitter.on("peerTyping", (isTyping) => {
+        typingIndicator.classList.toggle("hidden", !isTyping);
+        if (isTyping && isNearBottom()) chatScroll.scrollTop = chatScroll.scrollHeight;
+      });
+      c.emitter.on("peerDisconnected", () => {
+        typingIndicator.classList.add("hidden");
+        const notice = document.createElement("div");
+        notice.className = "text-center text-xs text-[var(--color-fg-subtle)] py-2";
+        notice.textContent = "Peer left the chat";
+        chatScroll.appendChild(notice);
+        chatScroll.scrollTop = chatScroll.scrollHeight;
+      });
+      c.emitter.on("error", (e) => addWarning(e.message));
+    };
+
+    // Auto-grow textarea + send-button enable/disable + typing notification.
+    const autoGrow = () => {
+      chatInput.style.height = "auto";
+      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 128)}px`;
+    };
+    chatInput.addEventListener("input", () => {
+      autoGrow();
+      chatSend.disabled = chatInput.value.trim().length === 0;
+      if (chat && chatInput.value.length > 0) chat.setTyping(true);
+      else chat?.setTyping(false);
+    });
+    chatInput.addEventListener("keydown", (e) => {
+      // Enter sends, Shift+Enter inserts newline.
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        chatForm.requestSubmit();
+      }
+    });
+    chatForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = chatInput.value.trim();
+      if (!text || !chat) return;
+      try {
+        const msg = chat.send(text);
+        appendBubble(msg, true);
+        chatInput.value = "";
+        chatSend.disabled = true;
+        autoGrow();
+      } catch (err) {
+        addWarning((err as Error).message);
+      }
+    });
+
+    const resetChatUI = () => {
+      chatPanel.classList.add("hidden");
+      chatScroll.innerHTML = "";
+      chatScroll.appendChild(chatEmpty);
+      chatEmpty.classList.remove("hidden");
+      typingIndicator.classList.add("hidden");
+      chatInput.value = "";
+      chatInput.disabled = false;
+      chatInput.placeholder = "Type a message…";
+      chatSend.disabled = true;
+      lastMessageTs = 0;
+      autoGrow();
+    };
 
     const bootAutoSender = async () => {
       session = new TeleportSession({ signalingUrl: site.signalingUrl });
@@ -571,6 +735,7 @@ import { site } from "../site.config";
       session?.destroy();
       session = null;
       transfer = null;
+      chat = null;
       sendingRows.length = 0;
       receivingRows.length = 0;
       activeSendRow = null;
@@ -580,6 +745,7 @@ import { site } from "../site.config";
       transferPanel.classList.add("hidden");
       senderLink.classList.add("hidden");
       paranoidPanel.classList.add("hidden");
+      resetChatUI();
       showStatus();
       statusRole.textContent = role === "receiver" ? "Receiver" : "Sender";
 

@@ -58,6 +58,17 @@ import { site } from "../site.config";
       </div>
 
       <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">Chat messages</h2>
+        <p class="mt-3">
+          The in-app chat panel uses the <strong class="text-[var(--color-fg)]">same DTLS-encrypted
+          WebRTC data channel</strong> as your files. Messages are ephemeral —
+          they live only in your two browser tabs. Refresh either tab and the
+          conversation is gone. There is no transcript, no server-side log,
+          no export.
+        </p>
+      </div>
+
+      <div>
         <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">Paranoid mode</h2>
         <p class="mt-3">
           Don't trust our signaling server? Use the <strong class="text-[var(--color-fg)]">manual SDP exchange</strong>
