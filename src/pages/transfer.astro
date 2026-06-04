@@ -75,6 +75,7 @@ import { site } from "../site.config";
         </p>
       </div>
     </section>
+    <!-- Status card (hidden until a role is picked) -->
     <div id="status-card" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-6">
       <div class="flex items-center gap-3">
         <span id="status-dot" class="size-2.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
@@ -82,6 +83,18 @@ import { site } from "../site.config";
         <span id="status-role" class="ml-auto text-xs uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]"></span>
       </div>
       <p id="status-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]"></p>
+
+      <details class="mt-4 text-xs">
+        <summary class="cursor-pointer text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] select-none">
+          Show technical details
+        </summary>
+        <div id="diag-grid" class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono">
+          <!-- populated by JS -->
+        </div>
+        <p class="mt-3 text-[10px] text-[var(--color-fg-subtle)] italic">
+          Updates live. Useful for debugging connection issues — paste a screenshot if you report a bug.
+        </p>
+      </details>
     </div>
 
     <!-- AUTO MODE: Sender share link -->
@@ -256,7 +269,7 @@ import { site } from "../site.config";
   </main>
 
   <script>
-    import { TeleportSession, type PeerConnState } from "../lib/teleportSession";
+    import { TeleportSession, type PeerConnState, type DiagSnapshot } from "../lib/teleportSession";
     import { FileTransfer, saveFileToDisk } from "../lib/fileTransfer";
     import { ChatManager, type ChatMessage } from "../lib/chat";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
@@ -278,6 +291,7 @@ import { site } from "../site.config";
     const statusLabel = $("status-label");
     const statusDetail = $("status-detail");
     const statusRole = $("status-role");
+    const diagGrid = $("diag-grid");
     const senderLink = $("sender-link");
     const shareLink = $<HTMLInputElement>("share-link");
     const copyLinkBtn = $<HTMLButtonElement>("copy-link");
@@ -338,6 +352,97 @@ import { site } from "../site.config";
       statusLabel.textContent = label;
       statusDot.style.background = color;
       statusDetail.textContent = detail;
+    };
+
+    /**
+     * Render a much more honest status line based on the live diag snapshot.
+     * Walks through the actual handshake stages so the user (and we) can
+     * tell exactly where things are stuck.
+     */
+    const updateLiveStatus = (d: DiagSnapshot) => {
+      // Already connected? Don't second-guess.
+      if (d.peerConnection === "connected") {
+        setStatus("connected", `${d.candidateTypes.relay > 0 ? "Relayed via TURN" : "Direct P2P"} · ${d.candidatesGathered} local / ${d.candidatesReceived} remote candidates`);
+        return;
+      }
+      if (d.peerConnection === "failed") {
+        setStatus(
+          "failed",
+          `ICE could not find a working path. Local: ${candSummary(d.candidateTypes)} · Got ${d.candidatesReceived} candidates from peer. Likely cause: strict NAT or no TURN.`,
+        );
+        return;
+      }
+
+      // Sender flow
+      if (role === "sender") {
+        if (d.ws === "idle" || d.ws === "connecting") {
+          setStatus("signaling", `Connecting to signaling server (${d.ws})…`);
+        } else if (d.ws === "open" && d.candidatesGathered === 0) {
+          setStatus("signaling", "Gathering your network candidates (STUN/TURN)…");
+        } else if (d.ws === "open" && d.candidatesReceived === 0 && d.peerConnection !== "connecting") {
+          setStatus(
+            "signaling",
+            `Waiting for receiver to open your link. Your handshake is ready (${d.candidatesGathered} candidates, ${candSummary(d.candidateTypes)}).`,
+          );
+        } else if (d.peerConnection === "connecting" || d.peerConnection === "new") {
+          setStatus(
+            "connecting",
+            `Receiver joined. Negotiating direct path — got ${d.candidatesReceived} of their candidates so far (ICE: ${d.iceConnection}).`,
+          );
+        } else if (d.ws === "closed") {
+          setStatus("signaling", "Signaling offline — will auto-reconnect when you return to this tab.");
+        } else {
+          setStatus("signaling", `WS:${d.ws} ICE:${d.iceConnection} Peer:${d.peerConnection}`);
+        }
+      } else {
+        // Receiver flow
+        if (d.ws === "idle" || d.ws === "connecting") {
+          setStatus("signaling", "Connecting to signaling server…");
+        } else if (d.ws === "open" && d.candidatesReceived === 0 && !d.peerHasOffer) {
+          setStatus("signaling", "Connected to room — waiting for sender's invite to arrive…");
+        } else if (d.peerHasOffer && d.candidatesGathered === 0) {
+          setStatus("signaling", "Got the invite. Gathering your network candidates…");
+        } else if (d.peerConnection === "connecting" || d.peerConnection === "new") {
+          setStatus(
+            "connecting",
+            `Negotiating with sender — ${d.candidatesGathered} local / ${d.candidatesReceived} remote candidates (ICE: ${d.iceConnection}).`,
+          );
+        } else if (d.ws === "closed") {
+          setStatus("signaling", "Signaling offline — will reconnect.");
+        } else {
+          setStatus("signaling", `WS:${d.ws} ICE:${d.iceConnection} Peer:${d.peerConnection}`);
+        }
+      }
+    };
+
+    const candSummary = (t: DiagSnapshot["candidateTypes"]) => {
+      const bits: string[] = [];
+      if (t.host) bits.push(`${t.host} local`);
+      if (t.srflx) bits.push(`${t.srflx} STUN`);
+      if (t.relay) bits.push(`${t.relay} TURN`);
+      if (t.prflx) bits.push(`${t.prflx} reflexive`);
+      return bits.length ? bits.join(", ") : "none yet";
+    };
+
+    const renderDiag = (d: DiagSnapshot) => {
+      const cell = (k: string, v: string, color = "var(--color-fg)") => `
+        <div class="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5">
+          <div class="text-[10px] uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">${k}</div>
+          <div class="text-xs truncate" style="color:${color}">${v}</div>
+        </div>
+      `;
+      const colorFor = (v: string, good: string[], bad: string[]) =>
+        good.includes(v) ? "var(--color-success)" : bad.includes(v) ? "var(--color-danger)" : "var(--color-fg-muted)";
+      diagGrid.innerHTML =
+        cell("Signaling WS", d.ws, colorFor(d.ws, ["open"], ["closed"])) +
+        cell("ICE gathering", d.iceGathering, colorFor(d.iceGathering, ["complete"], [])) +
+        cell("ICE connection", d.iceConnection, colorFor(d.iceConnection, ["connected", "completed"], ["failed", "disconnected"])) +
+        cell("Peer connection", d.peerConnection, colorFor(d.peerConnection, ["connected"], ["failed"])) +
+        cell("Data channel", d.dataChannel, colorFor(d.dataChannel, ["open"], ["closed"])) +
+        cell("Has offer", d.peerHasOffer ? "yes" : "no") +
+        cell("Local candidates", `${d.candidatesGathered}`) +
+        cell("Remote candidates", `${d.candidatesReceived}`) +
+        cell("Cand types", candSummary(d.candidateTypes));
     };
 
     const addWarning = (msg: string) => {
@@ -438,6 +543,11 @@ import { site } from "../site.config";
       transfer = new FileTransfer(s);
       chat = new ChatManager(s);
       wireChat(chat);
+
+      s.emitter.on("diag", (d) => {
+        renderDiag(d);
+        updateLiveStatus(d);
+      });
 
       s.emitter.on("state", (state) => {
         setStatus(state);

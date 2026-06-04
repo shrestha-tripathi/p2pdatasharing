@@ -27,6 +27,21 @@ export interface SessionEvents {
   /** Emitted in manual mode whenever there's a new SDP/ICE blob to share. */
   manualBlob: string;
   error: Error;
+  /** Detailed diagnostic snapshot — fired on every state change. */
+  diag: DiagSnapshot;
+}
+
+export interface DiagSnapshot {
+  ws: "idle" | "connecting" | "open" | "closed";
+  peerHasOffer: boolean;
+  peerHasAnswer: boolean;
+  iceGathering: RTCIceGatheringState;
+  iceConnection: RTCIceConnectionState;
+  peerConnection: RTCPeerConnectionState;
+  dataChannel: RTCDataChannelState | "none";
+  candidatesGathered: number;
+  candidatesReceived: number;
+  candidateTypes: { host: number; srflx: number; relay: number; prflx: number };
 }
 
 const DEFAULT_ICE: RTCIceServer[] = [
@@ -79,6 +94,32 @@ export class TeleportSession {
    */
   private cachedOffer: RTCSessionDescriptionInit | null = null;
   private cachedCandidates: RTCIceCandidateInit[] = [];
+  private candidatesReceived = 0;
+  private candidateTypes = { host: 0, srflx: 0, relay: 0, prflx: 0 };
+
+  private emitDiag() {
+    const wsState: DiagSnapshot["ws"] = !this.ws
+      ? "idle"
+      : this.ws.readyState === WebSocket.CONNECTING
+      ? "connecting"
+      : this.ws.readyState === WebSocket.OPEN
+      ? "open"
+      : "closed";
+    this.emitter.emit("diag", {
+      ws: wsState,
+      peerHasOffer: !!this.peer.localDescription || !!this.peer.remoteDescription,
+      peerHasAnswer:
+        (this.peer.localDescription?.type === "answer") ||
+        (this.peer.remoteDescription?.type === "answer"),
+      iceGathering: this.peer.iceGatheringState,
+      iceConnection: this.peer.iceConnectionState,
+      peerConnection: this.peer.connectionState,
+      dataChannel: this.dataChannel?.readyState ?? "none",
+      candidatesGathered: this.cachedCandidates.length,
+      candidatesReceived: this.candidatesReceived,
+      candidateTypes: { ...this.candidateTypes },
+    });
+  }
 
   constructor(private opts: CreateSessionOptions) {
     this.peer = new RTCPeerConnection({
@@ -107,13 +148,11 @@ export class TeleportSession {
   }
 
   private wireUpPeer() {
+    const fireDiag = () => this.emitDiag();
     this.peer.onconnectionstatechange = () => {
       const s = this.peer.connectionState;
       this.emitter.emit("log", `peer state: ${s}`);
       if (s === "connecting") {
-        // Peer answered — NOW start the timeout. Before this, we were
-        // just waiting for the receiver to open the link, which can
-        // take arbitrarily long and shouldn't be treated as a failure.
         this.startConnectTimer();
       } else if (s === "connected") {
         this.clearConnectTimer();
@@ -124,20 +163,30 @@ export class TeleportSession {
       } else if (s === "failed") {
         this.emitter.emit("state", "failed");
       }
+      fireDiag();
     };
+    this.peer.oniceconnectionstatechange = fireDiag;
+    this.peer.onicegatheringstatechange = fireDiag;
+    this.peer.onsignalingstatechange = fireDiag;
 
     this.peer.ondatachannel = (e) => {
       this.attachChannel(e.channel);
+      fireDiag();
     };
 
     this.peer.onicecandidate = (e) => {
       if (e.candidate) {
         const cand = e.candidate.toJSON();
-        // Cache for resend-on-reconnect.
         if (this.role === "sender") {
           this.cachedCandidates.push(cand);
+        } else {
+          this.cachedCandidates.push(cand);
         }
+        // Categorize for diagnostics — helps spot "STUN only" vs "TURN needed".
+        const type = e.candidate.type as keyof typeof this.candidateTypes | null;
+        if (type && type in this.candidateTypes) this.candidateTypes[type]++;
         this.sendSignal({ type: "candidate", payload: cand });
+        fireDiag();
       }
     };
   }
@@ -271,6 +320,8 @@ export class TeleportSession {
       } else if (msg.type === "candidate") {
         try {
           await this.peer.addIceCandidate(msg.payload as RTCIceCandidateInit);
+          this.candidatesReceived++;
+          this.emitDiag();
         } catch (err) {
           this.emitter.emit("log", `addIceCandidate failed: ${String(err)}`);
         }
