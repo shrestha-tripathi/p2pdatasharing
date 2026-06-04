@@ -15,6 +15,7 @@
     "@tailwindcss/vite": "^4.3.0",
     "@types/qrcode": "^1.5.6",
     "astro": "^6.4.4",
+    "client-zip": "^2.5.0",
     "qrcode": "^1.5.4",
     "tailwindcss": "^4.3.0"
   },

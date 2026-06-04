@@ -216,7 +216,16 @@ import { site } from "../site.config";
           <p class="text-lg font-medium">Drop files or click to pick</p>
           <p class="mt-1 text-sm text-[var(--color-fg-muted)]">Any size. Multiple files OK. Streamed directly to the receiver.</p>
           <input id="file-input" type="file" multiple class="hidden" />
+          <input id="folder-input" type="file" webkitdirectory multiple class="hidden" />
         </label>
+        <div class="mt-3 flex items-center justify-center gap-3 flex-wrap">
+          <button id="pick-folder-btn" type="button" class="text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] inline-flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Pick folder (zipped)
+          </button>
+          <span class="text-[var(--color-fg-subtle)]">·</span>
+          <span class="text-xs text-[var(--color-fg-subtle)]">Drop a folder to zip & send</span>
+        </div>
         <p class="mt-3 text-xs text-[var(--color-fg-subtle)] text-center">
           You can keep dropping more files after the current one finishes. Press <kbd class="px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] text-[10px] font-mono">Ctrl/⌘ + V</kbd> to paste screenshots.
         </p>
@@ -316,6 +325,7 @@ import { site } from "../site.config";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
     import { site } from "../site.config";
     import QRCode from "qrcode";
+    import { downloadZip } from "client-zip";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -367,6 +377,8 @@ import { site } from "../site.config";
     const transferPanel = $("transfer-panel");
     const dropZone = $("drop-zone");
     const fileInput = $<HTMLInputElement>("file-input");
+    const folderInput = $<HTMLInputElement>("folder-input");
+    const pickFolderBtn = $<HTMLButtonElement>("pick-folder-btn");
     const pendingQueueSection = $("pending-queue-section");
     const pendingQueueList = $<HTMLUListElement>("pending-queue");
     const pqCount = $("pq-count");
@@ -1078,10 +1090,122 @@ import { site } from "../site.config";
       onPickFiles(fileInput.files);
       fileInput.value = "";
     });
+
+    // ---------- Folder support ----------
+    // Walks a FileSystemDirectoryEntry recursively, returns flat list of
+    // [File, relativePath] tuples. Used by drag-drop of folders.
+    type FsEntry = FileSystemEntry & {
+      isFile: boolean;
+      isDirectory: boolean;
+      createReader?: () => { readEntries: (cb: (entries: FsEntry[]) => void, err?: (e: Error) => void) => void };
+      file?: (cb: (f: File) => void, err?: (e: Error) => void) => void;
+    };
+
+    const walkEntry = async (entry: FsEntry, pathPrefix: string): Promise<{ file: File; path: string }[]> => {
+      if (entry.isFile && entry.file) {
+        return new Promise((resolve, reject) => {
+          entry.file!((f) => resolve([{ file: f, path: `${pathPrefix}${f.name}` }]), reject);
+        });
+      }
+      if (entry.isDirectory && entry.createReader) {
+        const reader = entry.createReader();
+        // readEntries returns up to 100 entries per call — must loop until empty
+        const allEntries: FsEntry[] = [];
+        await new Promise<void>((resolve, reject) => {
+          const readBatch = () => {
+            reader.readEntries((batch) => {
+              if (batch.length === 0) resolve();
+              else { allEntries.push(...batch); readBatch(); }
+            }, reject);
+          };
+          readBatch();
+        });
+        const newPrefix = `${pathPrefix}${entry.name}/`;
+        const nested = await Promise.all(allEntries.map((e) => walkEntry(e, newPrefix)));
+        return nested.flat();
+      }
+      return [];
+    };
+
+    const zipFilesAndQueue = async (
+      files: { file: File; path: string }[],
+      zipName: string,
+    ) => {
+      if (files.length === 0) return;
+      // Show toast-style hint while zipping (it can take a few seconds for big folders)
+      addWarning(`Zipping ${files.length} file${files.length === 1 ? "" : "s"}… please wait.`);
+      try {
+        // client-zip streams the response, but we need a File with known size
+        // (the protocol requires meta.size up front), so we materialize it.
+        const zipResponse = downloadZip(
+          files.map(({ file, path }) => ({ name: path, lastModified: new Date(file.lastModified), input: file })),
+        );
+        const blob = await zipResponse.blob();
+        const zipFile = new File([blob], zipName, { type: "application/zip", lastModified: Date.now() });
+        // Clear the "zipping" warning by re-rendering warnings without it.
+        // Simplest: just add a "done" hint; user dismisses old one mentally.
+        const dt = new DataTransfer();
+        dt.items.add(zipFile);
+        onPickFiles(dt.files);
+      } catch (e) {
+        addWarning(`Failed to zip folder: ${(e as Error).message}`);
+      }
+    };
+
+    folderInput.addEventListener("change", async () => {
+      const files = folderInput.files;
+      if (!files || files.length === 0) return;
+      // webkitRelativePath gives us "FolderName/sub/file.ext"
+      const arr = Array.from(files).map((f) => ({
+        file: f,
+        path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
+      }));
+      const rootName = arr[0]?.path.split("/")[0] || "folder";
+      folderInput.value = "";
+      await zipFilesAndQueue(arr, `${rootName}.zip`);
+    });
+
+    pickFolderBtn.addEventListener("click", () => folderInput.click());
+
     document.addEventListener("dragover", (e) => e.preventDefault());
-    document.addEventListener("drop", (e) => {
+    document.addEventListener("drop", async (e) => {
       e.preventDefault();
       if (role !== "sender") return; // ignore drops on receiver side
+      const items = e.dataTransfer?.items;
+      // Detect folder drops via DataTransferItem.webkitGetAsEntry
+      if (items && items.length > 0) {
+        const entries: FsEntry[] = [];
+        for (const item of Array.from(items)) {
+          const entry = (item as DataTransferItem & {
+            webkitGetAsEntry?: () => FsEntry | null;
+          }).webkitGetAsEntry?.();
+          if (entry) entries.push(entry);
+        }
+        const hasFolder = entries.some((en) => en.isDirectory);
+        if (hasFolder) {
+          // Mixed or folder-only drop: walk everything, zip per top-level folder,
+          // queue stand-alone files separately.
+          const standalone: File[] = [];
+          for (const entry of entries) {
+            if (entry.isFile && entry.file) {
+              const f: File = await new Promise((res, rej) => entry.file!(res, rej));
+              standalone.push(f);
+            } else if (entry.isDirectory) {
+              const walked = await walkEntry(entry, "");
+              // Re-prefix so the zip root matches the folder name
+              const withRoot = walked.map(({ file, path }) => ({ file, path: `${entry.name}/${path}` }));
+              await zipFilesAndQueue(withRoot, `${entry.name}.zip`);
+            }
+          }
+          if (standalone.length > 0) {
+            const dt = new DataTransfer();
+            for (const f of standalone) dt.items.add(f);
+            onPickFiles(dt.files);
+          }
+          return;
+        }
+      }
+      // Plain files (no folders) — original path
       onPickFiles(e.dataTransfer?.files ?? null);
     });
 
