@@ -173,6 +173,16 @@ import { site } from "../site.config";
       </div>
       <p id="status-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]"></p>
 
+      <!-- Manual disconnect — surfaces whenever there's an active session
+           (paired auto-connect, normal sender/receiver, or paranoid). -->
+      <div class="mt-3">
+        <button id="manual-disconnect" type="button"
+          class="hidden inline-flex items-center gap-2 h-8 rounded-md border border-[var(--color-border)] px-3 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-danger)] hover:border-[var(--color-danger)] transition-colors">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg>
+          Disconnect
+        </button>
+      </div>
+
       <details class="mt-4 text-xs">
         <summary class="cursor-pointer text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] select-none">
           Show technical details
@@ -1382,6 +1392,9 @@ import { site } from "../site.config";
           paranoidPanel.classList.add("hidden");
           // Successful link — re-arm one-shot auto-recovery for next failure.
           autoReconnectAttempted = false;
+          // Surface the manual-disconnect button on every successful connect.
+          const discBtn = document.getElementById("manual-disconnect");
+          if (discBtn) discBtn.classList.remove("hidden");
           chatPanel.classList.remove("hidden");
           // Re-enable chat in case it was disabled by a transient disconnect.
           chatInput.disabled = false;
@@ -2237,34 +2250,38 @@ import { site } from "../site.config";
         rolePicker.classList.remove("hidden");
       }, 6000);
 
+      // v1: probe pairs SEQUENTIALLY rather than in parallel. Each pair gets
+      // ~12s to connect; on miss we destroy and move to the next. Sequential
+      // probing keeps session/role correctly pinned to whichever pair wins
+      // (parallel racing made wireSession's listeners attach to a session
+      // that might lose, breaking previews + UI on the winner). Once one
+      // connects, we stay on it forever — manual disconnect is the escape.
+      let didConnect = false;
       for (const pair of pairs) {
+        if (didConnect) break;
         try {
           const room = await deriveRoomId(pair.secret);
           const s = new TeleportSession({ signalingUrl: site.signalingUrl });
-          probeSessions.push({ session: s, pair });
+          probeSessions = [{ session: s, pair }];
+          session = s;
+          role = pair.iAmHost ? "sender" : "receiver";
+          // wireSession MUST run before host/join — otherwise the "state"
+          // event for "connected" fires before transferPanel/dropZone/preview
+          // handlers are subscribed and the UI never reveals.
+          wireSession(s);
 
-          // First session to connect wins; tear down the rest.
           s.emitter.on("state", (state) => {
-            if (state === "connected" && session !== s) {
+            if (state === "connected" && !didConnect) {
+              didConnect = true;
               clearTimeout(manualEscape);
               rolePicker.classList.add("hidden");
-              session = s;
-              role = pair.iAmHost ? "sender" : "receiver";
               activePair = pair;
-              // Trusted badge on chat header
               const badge = document.getElementById("chat-trusted-badge");
               if (badge) badge.classList.remove("hidden");
-              wireSession(s);
-              const nickEl = $("nickname-input") as HTMLInputElement | null;
-              if (nickEl) refreshIdentityLabels();
               addWarning(`✓ Auto-connected to ${pair.nickname}`);
-              for (const other of probeSessions) {
-                if (other.session !== s) {
-                  try { other.session.destroy(); } catch {}
-                }
-              }
-              probeSessions = [{ session: s, pair }];
               renderDevices();
+              const disc = document.getElementById("manual-disconnect");
+              if (disc) disc.classList.remove("hidden");
             }
           });
 
@@ -2273,9 +2290,32 @@ import { site } from "../site.config";
           } else {
             await s.joinAuto(room);
           }
+
+          // Wait up to 12s for THIS pair to connect; if it doesn't, move on.
+          await new Promise<void>((resolve) => {
+            const t = setTimeout(resolve, 12_000);
+            const off = s.emitter.on("state", (st) => {
+              if (st === "connected" || st === "failed") {
+                clearTimeout(t);
+                off();
+                resolve();
+              }
+            });
+          });
+
+          if (!didConnect) {
+            try { s.destroy(); } catch {}
+            session = null;
+            role = null;
+          }
         } catch (e) {
           addWarning(`Pair "${pair.nickname}" probe failed: ${(e as Error).message}`);
         }
+      }
+
+      if (!didConnect) {
+        // Last fallback: surface the picker so the user isn't stuck.
+        rolePicker.classList.remove("hidden");
       }
     };
 
@@ -2799,6 +2839,27 @@ import { site } from "../site.config";
         if (kbdOverlay.classList.contains("hidden")) showKbdHelp();
         else hideKbdHelp();
       }
+    });
+
+    // ---------- Manual disconnect ----------
+    const discBtn = document.getElementById("manual-disconnect") as HTMLButtonElement | null;
+    discBtn?.addEventListener("click", () => {
+      if (!confirm("Disconnect from this peer? You'll need to reconnect manually (or auto-reconnect if paired).")) return;
+      try { session?.destroy(); } catch {}
+      session = null;
+      role = null;
+      activePair = null;
+      // Hide UI bits that don't make sense post-disconnect.
+      discBtn.classList.add("hidden");
+      const badge = document.getElementById("chat-trusted-badge");
+      if (badge) badge.classList.add("hidden");
+      // Stop the uptime ticker + reset chat input state.
+      setStatus("disconnected", "You disconnected manually. Refresh the page to reconnect.");
+      chatInput.disabled = true;
+      chatInput.placeholder = "Disconnected — refresh to reconnect";
+      chatSend.disabled = true;
+      renderDevices();
+      addWarning("Disconnected. Refresh the page (or close the tab) to reset.");
     });
 
     // ---------- Theme toggle ----------
