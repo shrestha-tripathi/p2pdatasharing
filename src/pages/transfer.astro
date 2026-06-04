@@ -200,7 +200,8 @@ import { site } from "../site.config";
           rows="1"
           placeholder="Type a message…"
           maxlength="2000"
-          class="flex-1 resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm leading-snug max-h-32 focus:outline-none focus:border-[var(--color-accent)]"
+          class="flex-1 resize-none rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-sm leading-[1.4] min-h-10 max-h-32 focus:outline-none focus:border-[var(--color-accent)]"
+          style="height: 40px;"
         ></textarea>
         <button
           id="chat-send"
@@ -566,9 +567,16 @@ import { site } from "../site.config";
     };
 
     // Auto-grow textarea + send-button enable/disable + typing notification.
+    // Resets to the 40px base height when empty so the input never collapses
+    // to 0 (which happens if scrollHeight is read while the panel is hidden).
     const autoGrow = () => {
+      if (chatInput.value.length === 0) {
+        chatInput.style.height = "40px";
+        return;
+      }
       chatInput.style.height = "auto";
-      chatInput.style.height = `${Math.min(chatInput.scrollHeight, 128)}px`;
+      const next = Math.max(40, Math.min(chatInput.scrollHeight, 128));
+      chatInput.style.height = `${next}px`;
     };
     chatInput.addEventListener("input", () => {
       autoGrow();
