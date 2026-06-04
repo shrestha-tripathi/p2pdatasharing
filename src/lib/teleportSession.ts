@@ -102,10 +102,14 @@ export class TeleportSession {
     this.peer.onconnectionstatechange = () => {
       const s = this.peer.connectionState;
       this.emitter.emit("log", `peer state: ${s}`);
-      if (s === "connected") {
+      if (s === "connecting") {
+        // Peer answered — NOW start the timeout. Before this, we were
+        // just waiting for the receiver to open the link, which can
+        // take arbitrarily long and shouldn't be treated as a failure.
+        this.startConnectTimer();
+      } else if (s === "connected") {
         this.clearConnectTimer();
         this.emitter.emit("state", "connected");
-        // Signaling no longer needed.
         this.closeSignaling();
       } else if (s === "disconnected") {
         this.emitter.emit("state", "disconnected");
@@ -148,7 +152,8 @@ export class TeleportSession {
     const offer = await this.peer.createOffer();
     await this.peer.setLocalDescription(offer);
     this.sendSignal({ type: "offer", payload: offer });
-    this.startConnectTimer();
+    // NOTE: no startConnectTimer here — we'll start it in
+    // onconnectionstatechange once the receiver actually answers.
   }
 
   /** Receiver path: join room, await offer. */
@@ -157,6 +162,8 @@ export class TeleportSession {
     this.roomId = roomId;
     this.emitter.emit("state", "signaling");
     await this.openSignaling(roomId);
+    // Receiver is opening a fresh link — peer should answer within seconds.
+    // Safe to start the 15s timer immediately here.
     this.startConnectTimer();
   }
 

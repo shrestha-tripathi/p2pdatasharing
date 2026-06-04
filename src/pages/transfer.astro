@@ -232,7 +232,7 @@ import { site } from "../site.config";
     const setStatus = (s: PeerConnState, detail = "") => {
       const map: Record<PeerConnState, { label: string; color: string }> = {
         idle: { label: "Idle", color: "var(--color-fg-subtle)" },
-        signaling: { label: "Signaling…", color: "var(--color-warning)" },
+        signaling: { label: "Waiting for peer to join…", color: "var(--color-warning)" },
         connecting: { label: "Connecting…", color: "var(--color-warning)" },
         connected: { label: "Connected — peer linked", color: "var(--color-success)" },
         disconnected: { label: "Disconnected", color: "var(--color-fg-subtle)" },
@@ -451,7 +451,7 @@ import { site } from "../site.config";
     const bootAutoSender = async () => {
       session = new TeleportSession({ signalingUrl: site.signalingUrl });
       wireSession(session);
-      setStatus("signaling", "Connecting to signaling server…");
+      setStatus("signaling", "Share the link below — the connection opens automatically as soon as the receiver loads it.");
       const room = generateRoomId();
       const url = `${location.origin}${import.meta.env.BASE_URL}transfer?r=${room}`;
       shareLink.value = url;
