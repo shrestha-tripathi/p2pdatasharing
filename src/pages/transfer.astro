@@ -130,15 +130,28 @@ import { site } from "../site.config";
            they know which device they'll connect to when they pick a role.
            Eliminates the "both think they're host" race entirely by making
            role assignment user-driven, not server-arrival-order driven. -->
-      <div id="role-paired-banner" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 mb-4 flex items-start gap-3">
-        <span class="size-2.5 rounded-full presence-dot-online mt-1.5 shrink-0"></span>
-        <div class="text-sm">
-          <div class="font-medium">
-            Paired with <span id="role-paired-banner-name" class="text-[var(--color-accent)]">your device</span>
+      <div id="role-paired-banner" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 mb-4">
+        <div class="flex items-start gap-3">
+          <span class="size-2.5 rounded-full presence-dot-online mt-1.5 shrink-0"></span>
+          <div class="text-sm flex-1">
+            <div class="font-medium">
+              Paired with <span id="role-paired-banner-name" class="text-[var(--color-accent)]">your device</span>
+            </div>
+            <div class="text-[var(--color-fg-muted)] mt-0.5">
+              Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll connect automatically. No invite link needed.
+            </div>
           </div>
-          <div class="text-[var(--color-fg-muted)] mt-0.5">
-            Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll connect automatically. No invite link needed.
-          </div>
+        </div>
+        <!-- Mode toggle: connect to paired device OR generate/paste link for someone new. -->
+        <div class="mt-4 flex gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-1 text-sm">
+          <button id="connect-mode-paired" type="button"
+            class="flex-1 rounded px-3 py-1.5 font-medium bg-[var(--color-bg-muted)] text-[var(--color-fg)]">
+            My paired device
+          </button>
+          <button id="connect-mode-stranger" type="button"
+            class="flex-1 rounded px-3 py-1.5 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
+            Someone else (link)
+          </button>
         </div>
       </div>
 
@@ -2792,11 +2805,10 @@ import { site } from "../site.config";
     roleSendBtn.onclick = () => {
       role = "sender";
       rolePicker.classList.add("hidden");
-      // If we have paired devices and we're NOT in paranoid mode, take the
-      // explicit-role paired path: derive the room from the pair secret and
-      // connect directly. No invite link needed.
+      // Paired fast-path only when (a) we have a paired device, (b) user hasn't
+      // explicitly switched to "Someone else (link)" mode, and (c) not paranoid.
       const pairs = listPairs();
-      if (pairs.length > 0 && !paranoidToggle.checked) {
+      if (pairs.length > 0 && connectMode === "paired" && !paranoidToggle.checked) {
         bootPaired(pairs[0], "sender").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);
           rolePicker.classList.remove("hidden");
@@ -2817,10 +2829,9 @@ import { site } from "../site.config";
         bootRole();
         return;
       }
-      // Paired-device fast path: skip the "paste a link" step entirely and
-      // connect directly to our paired device on its derived room.
+      // Paired-device fast path — only when user hasn't switched to stranger mode.
       const pairs = listPairs();
-      if (pairs.length > 0) {
+      if (pairs.length > 0 && connectMode === "paired") {
         rolePicker.classList.add("hidden");
         bootPaired(pairs[0], "receiver").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);
@@ -2833,6 +2844,33 @@ import { site } from "../site.config";
       roleReceiveInput.classList.remove("hidden");
       roleReceiveLink.focus();
     };
+
+    // ---------- Connect-mode toggle (paired vs stranger) ----------
+    let connectMode: "paired" | "stranger" = "paired";
+    const cmPaired = document.getElementById("connect-mode-paired");
+    const cmStranger = document.getElementById("connect-mode-stranger");
+    const updateConnectModeUI = () => {
+      if (!cmPaired || !cmStranger) return;
+      const activeCls = "font-medium bg-[var(--color-bg-muted)] text-[var(--color-fg)]";
+      const inactiveCls = "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]";
+      cmPaired.className = `flex-1 rounded px-3 py-1.5 ${connectMode === "paired" ? activeCls : inactiveCls}`;
+      cmStranger.className = `flex-1 rounded px-3 py-1.5 ${connectMode === "stranger" ? activeCls : inactiveCls}`;
+      // Update the role-button descriptions to match selected mode.
+      const sendDesc = document.querySelector("#role-send p");
+      const recvDesc = document.querySelector("#role-receive p");
+      if (sendDesc && recvDesc) {
+        if (connectMode === "paired") {
+          sendDesc.textContent = "Send files to my paired device — they'll connect automatically.";
+          recvDesc.textContent = "Receive files from my paired device — they'll connect automatically.";
+        } else {
+          sendDesc.textContent = "I have files to share. Give me a link to send to someone.";
+          recvDesc.textContent = "Someone sent me an invite link to paste.";
+        }
+      }
+    };
+    if (cmPaired) cmPaired.onclick = () => { connectMode = "paired"; updateConnectModeUI(); };
+    if (cmStranger) cmStranger.onclick = () => { connectMode = "stranger"; updateConnectModeUI(); };
+    updateConnectModeUI();
 
     /** Extract a room ID from a pasted invite link OR a bare ID. */
     const extractRoomId = (input: string): string | null => {
