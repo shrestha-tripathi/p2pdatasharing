@@ -1269,11 +1269,21 @@ import { site } from "../site.config";
     const detectPreviewKind = (file: File, name: string): PreviewKind => {
       const ext = name.toLowerCase().split(".").pop() ?? "";
       const mime = file.type.toLowerCase();
+      // MIME-based detection (works for memory-blob files)
       if (mime.startsWith("image/") && mime !== "image/svg+xml") return "image";
       if (mime === "image/svg+xml" || ext === "svg") return "svg";
       if (mime.startsWith("video/")) return "video";
       if (mime.startsWith("audio/")) return "audio";
       if (mime === "application/pdf" || ext === "pdf") return "pdf";
+      // Extension fallback — OPFS-backed Files lose their MIME type, so
+      // a received .jpg / .mp4 / .mp3 has empty file.type and would
+      // otherwise fall through to "none" and skip rendering a preview.
+      const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp", "ico", "heic", "heif"];
+      const videoExts = ["mp4", "webm", "mov", "m4v", "mkv", "avi", "ogv"];
+      const audioExts = ["mp3", "wav", "ogg", "m4a", "aac", "flac", "opus"];
+      if (imageExts.includes(ext)) return "image";
+      if (videoExts.includes(ext)) return "video";
+      if (audioExts.includes(ext)) return "audio";
       if (
         mime.startsWith("text/") ||
         mime === "application/json" ||
