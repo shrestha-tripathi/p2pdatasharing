@@ -132,11 +132,11 @@ import { site } from "../site.config";
       <div id="role-paired-banner" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 mb-4">
         <div class="flex gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-1 text-sm">
           <button id="connect-mode-paired" type="button"
-            class="flex-1 rounded px-3 py-1.5 font-medium bg-[var(--color-bg-muted)] text-[var(--color-fg)]">
+            class="flex-1 rounded px-3 py-1.5 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
             My paired device
           </button>
           <button id="connect-mode-stranger" type="button"
-            class="flex-1 rounded px-3 py-1.5 text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]">
+            class="flex-1 rounded px-3 py-1.5 font-medium bg-[var(--color-bg-muted)] text-[var(--color-fg)]">
             Someone else (link)
           </button>
         </div>
@@ -2839,7 +2839,7 @@ import { site } from "../site.config";
     };
 
     // ---------- Connect-mode toggle (paired vs stranger) ----------
-    let connectMode: "paired" | "stranger" = "paired";
+    let connectMode: "paired" | "stranger" = "stranger";
     const cmPaired = document.getElementById("connect-mode-paired");
     const cmStranger = document.getElementById("connect-mode-stranger");
     const updateConnectModeUI = () => {
