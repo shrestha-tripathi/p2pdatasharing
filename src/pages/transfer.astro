@@ -73,6 +73,17 @@ import { site } from "../site.config";
           Link your phone and laptop once. After that, they auto-connect whenever both open this page — no link sharing needed.
         </p>
 
+        <!-- This device — shown so user always knows / can edit how
+             they appear in their other paired devices' rosters. -->
+        <div class="mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 flex items-center gap-3">
+          <span class="size-2 rounded-full bg-[var(--color-fg-muted)] shrink-0"></span>
+          <div class="flex-1 min-w-0">
+            <div class="text-[10px] uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">This device</div>
+            <div class="font-medium text-sm truncate" id="this-device-name">My device</div>
+          </div>
+          <button id="this-device-rename" class="h-8 rounded-md border border-[var(--color-border)] px-3 text-xs hover:bg-[var(--color-bg-muted)] shrink-0">Rename</button>
+        </div>
+
         <!-- Add-device flow: shows QR + URL for pairing -->
         <div id="devices-add-panel" class="hidden mt-4 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4">
           <label class="block text-xs text-[var(--color-fg-muted)]">
@@ -591,7 +602,7 @@ import { site } from "../site.config";
       listPairs, upsertPair, removePair, generatePairSecret,
       buildPairUrl, parsePairFragment, getAutoAccept, setAutoAccept,
       deriveRoomId, deriveLobbyId, generateSessionRoomId,
-      getDeviceId, getMyNickname, setMyNickname,
+      getDeviceId, getMyNickname, setMyNickname, hasCustomNickname,
       type Pair,
     } from "../lib/devicePairs";
     import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
@@ -2624,6 +2635,8 @@ import { site } from "../site.config";
       if (newName && newName.trim()) {
         setMyNickname(newName);
         lobbyReceiverNickname.textContent = getMyNickname();
+        // Keep the My Devices "This device" label in sync.
+        try { refreshThisDeviceLabel(); } catch { /* defined later — safe */ }
         if (lobby) {
           // Re-announce with new nickname by recreating role state.
           lobby.setRole("available"); // forces re-emit no-op
@@ -2933,6 +2946,39 @@ import { site } from "../site.config";
     const devicesList = $<HTMLUListElement>("devices-list");
     const devicesCount = $("devices-count");
     const devicesAutoAccept = $<HTMLInputElement>("devices-auto-accept");
+    const thisDeviceName = $("this-device-name");
+    const thisDeviceRename = $<HTMLButtonElement>("this-device-rename");
+
+    const refreshThisDeviceLabel = () => {
+      thisDeviceName.textContent = getMyNickname();
+      // Subtle visual hint that the name is still the auto-default —
+      // nudges multi-device users to rename so they can tell devices apart.
+      if (!hasCustomNickname()) {
+        thisDeviceName.classList.add("italic", "text-[var(--color-fg-muted)]");
+        thisDeviceName.title = "Auto-detected name — tap Rename to make it recognizable in your other devices.";
+      } else {
+        thisDeviceName.classList.remove("italic", "text-[var(--color-fg-muted)]");
+        thisDeviceName.title = "";
+      }
+    };
+
+    const promptForDeviceName = (reason?: string): boolean => {
+      const current = hasCustomNickname() ? getMyNickname() : "";
+      const message = reason
+        ? `${reason}\n\nWhat should this device be called? (e.g. "Shrestha's iPhone", "Work Mac")`
+        : "What should this device be called? (e.g. \"Shrestha's iPhone\", \"Work Mac\")";
+      const name = prompt(message, current);
+      if (name && name.trim()) {
+        setMyNickname(name);
+        refreshThisDeviceLabel();
+        return true;
+      }
+      return false;
+    };
+
+    thisDeviceRename.onclick = () => promptForDeviceName();
+    refreshThisDeviceLabel();
+
     const pairIncoming = $("pair-incoming");
     const pairIncomingName = $<HTMLInputElement>("pair-incoming-name");
     const pairIncomingDetail = $("pair-incoming-detail");
@@ -3113,6 +3159,18 @@ import { site } from "../site.config";
       // explicitly switched to "Someone else (link)" mode, and (c) not paranoid.
       const pairs = listPairs();
       if (pairs.length > 0 && connectMode === "paired" && !paranoidToggle.checked) {
+        // Force a name prompt on first paired use — otherwise everyone
+        // shows up in their peer's roster as "iPhone" / "Mac" / etc.
+        // and there's no way to tell two devices apart.
+        if (!hasCustomNickname()) {
+          const ok = promptForDeviceName(
+            "Before connecting, give this device a name so your other devices can recognize it.",
+          );
+          if (!ok) {
+            rolePicker.classList.remove("hidden");
+            return;
+          }
+        }
         bootLobby(pairs[0], "sender").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);
           rolePicker.classList.remove("hidden");
@@ -3136,6 +3194,15 @@ import { site } from "../site.config";
       // Paired-device fast path — only when user hasn't switched to stranger mode.
       const pairs = listPairs();
       if (pairs.length > 0 && connectMode === "paired") {
+        // Force a name prompt on first paired use (see send path above).
+        if (!hasCustomNickname()) {
+          const ok = promptForDeviceName(
+            "Before going online, give this device a name so the sender can recognize it.",
+          );
+          if (!ok) {
+            return;
+          }
+        }
         rolePicker.classList.add("hidden");
         bootLobby(pairs[0], "receiver").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);

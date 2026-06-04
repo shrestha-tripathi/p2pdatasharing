@@ -266,6 +266,16 @@ export function getMyNickname(): string {
   return localStorage.getItem(DEVICE_NICKNAME_KEY) || guessDefaultNickname();
 }
 
+/**
+ * True iff the user has explicitly set a device nickname (vs. falling
+ * back to the UA-sniff default). Used to force-prompt for a name on
+ * first lobby use so multi-phone households don't end up with two
+ * devices both named "iPhone" in the roster.
+ */
+export function hasCustomNickname(): boolean {
+  return !!localStorage.getItem(DEVICE_NICKNAME_KEY);
+}
+
 export function setMyNickname(name: string): void {
   const trimmed = name.trim().slice(0, 60);
   if (trimmed) localStorage.setItem(DEVICE_NICKNAME_KEY, trimmed);
