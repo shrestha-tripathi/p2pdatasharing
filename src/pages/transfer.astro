@@ -54,7 +54,7 @@ import { site } from "../site.config";
 
     <!-- My Devices panel — standalone (NOT inside role-picker) so it stays
          visible during active connections, showing live presence dots. -->
-    <details id="devices-panel" class="rounded-lg border border-[var(--color-border)] mb-4 group" open>
+    <details id="devices-panel" class="rounded-lg border border-[var(--color-border)] mb-4 group">
       <summary class="cursor-pointer p-4 flex items-center justify-between gap-3 flex-wrap hover:bg-[var(--color-bg-subtle)] transition-colors select-none">
         <div class="flex items-center gap-2">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="4" width="14" height="12" rx="1"/><path d="M17 9h3v8a1 1 0 0 1-1 1h-2"/><path d="M8 20h8"/></svg>
@@ -3069,6 +3069,12 @@ import { site } from "../site.config";
     const renderDevices = () => {
       const pairs = listPairsDeduped();
       devicesCount.textContent = pairs.length ? `· ${pairs.length}` : "";
+      // Reflect device-cap state on the Add button.
+      const atCap = pairs.length >= 3;
+      devicesAddBtn.disabled = atCap;
+      devicesAddBtn.classList.toggle("opacity-40", atCap);
+      devicesAddBtn.classList.toggle("cursor-not-allowed", atCap);
+      devicesAddBtn.title = atCap ? "Maximum 3 paired devices. Remove one to add another." : "";
       devicesList.innerHTML = "";
       if (pairs.length === 0) {
         const empty = document.createElement("li");
@@ -3112,8 +3118,13 @@ import { site } from "../site.config";
     devicesAutoAccept.checked = getAutoAccept();
     devicesAutoAccept.onchange = () => setAutoAccept(devicesAutoAccept.checked);
 
+    const MAX_PAIRED_DEVICES = 3;
     let pendingPairSecret = "";
     devicesAddBtn.onclick = async () => {
+      if (listPairsDeduped().length >= MAX_PAIRED_DEVICES) {
+        addWarning(`You can pair at most ${MAX_PAIRED_DEVICES} devices. Remove one before adding another.`);
+        return;
+      }
       pendingPairSecret = generatePairSecret();
       const myName = (localStorage.getItem("p2pds:name") || "").trim();
       const url = buildPairUrl(location.origin, import.meta.env.BASE_URL, pendingPairSecret, myName);
@@ -3173,10 +3184,19 @@ import { site } from "../site.config";
       }
       pairIncomingName.value = "";
       pairIncomingAccept.onclick = () => {
+        if (listPairsDeduped().length >= MAX_PAIRED_DEVICES) {
+          addWarning(`You can pair at most ${MAX_PAIRED_DEVICES} devices. Remove one before pairing this one.`);
+          return;
+        }
         const label = pairIncomingName.value.trim() || incomingPair.nickname || "Other device";
         upsertPair(incomingPair.secret, label, false);
         pairIncoming.classList.add("hidden");
         renderDevices();
+        // Now that a pair exists, default to paired mode and reveal the toggle
+        // so the user understands they can switch between paired vs link flows.
+        connectMode = "paired";
+        updateConnectModeUI();
+        refreshModeToggle();
       };
       pairIncomingCancel.onclick = () => {
         pairIncoming.classList.add("hidden");
@@ -3187,6 +3207,20 @@ import { site } from "../site.config";
 
 
     // Web Share Target: files were POSTed via SW, retrieve them from cache
+    /** Show/hide the paired-vs-stranger mode toggle based on whether we have pairs. */
+    const refreshModeToggle = () => {
+      const banner = document.getElementById("role-paired-banner");
+      const bannerName = document.getElementById("role-paired-banner-name");
+      if (!banner) return;
+      const pairs = listPairsDeduped();
+      if (pairs.length > 0) {
+        if (bannerName) bannerName.textContent = pairs[0].nickname;
+        banner.classList.remove("hidden");
+      } else {
+        banner.classList.add("hidden");
+      }
+    };
+
     if (sharedFlag) {
       // Strip the query string so a reload doesn't re-trigger
       history.replaceState({}, "", `${location.pathname}`);
@@ -3217,21 +3251,17 @@ import { site } from "../site.config";
       bootRole();
     } else if (listPairs().length > 0 && !incomingPair) {
       // Paired-device flow with EXPLICIT role choice — show the role picker
-      // even though we have paired devices, with a banner indicating which
-      // device we'll connect to. This eliminates the "both think they're
-      // host" glare bug because role is now decided by user intent, not
-      // by server arrival order.
-      const firstPair = listPairs()[0];
-      const banner = document.getElementById("role-paired-banner");
-      const bannerName = document.getElementById("role-paired-banner-name");
-      if (banner && bannerName) {
-        bannerName.textContent = firstPair.nickname;
-        banner.classList.remove("hidden");
-      }
+      // even though we have paired devices.
+      refreshModeToggle();
       rolePicker.classList.remove("hidden");
     } else {
       rolePicker.classList.remove("hidden");
     }
+
+    // If we have an incoming pair (URL fragment), the pair-incoming card
+    // is showing inside role-picker; make sure the mode toggle appears
+    // immediately so the user understands paired vs link mode.
+    refreshModeToggle();
 
     roleSendBtn.onclick = () => {
       role = "sender";
@@ -3298,7 +3328,9 @@ import { site } from "../site.config";
     };
 
     // ---------- Connect-mode toggle (paired vs stranger) ----------
-    let connectMode: "paired" | "stranger" = "stranger";
+    // Default to "paired" if user has any pairs — they almost always want
+    // their paired-device flow. Falls back to stranger for fresh installs.
+    let connectMode: "paired" | "stranger" = listPairs().length > 0 ? "paired" : "stranger";
     const cmPaired = document.getElementById("connect-mode-paired");
     const cmStranger = document.getElementById("connect-mode-stranger");
     const updateConnectModeUI = () => {
