@@ -126,6 +126,22 @@ import { site } from "../site.config";
            so the panel + presence dots stay visible after a connection
            forms (role-picker hides on connect). -->
 
+      <!-- Paired-device banner — shown when user has paired devices, so
+           they know which device they'll connect to when they pick a role.
+           Eliminates the "both think they're host" race entirely by making
+           role assignment user-driven, not server-arrival-order driven. -->
+      <div id="role-paired-banner" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 mb-4 flex items-start gap-3">
+        <span class="size-2.5 rounded-full presence-dot-online mt-1.5 shrink-0"></span>
+        <div class="text-sm">
+          <div class="font-medium">
+            Paired with <span id="role-paired-banner-name" class="text-[var(--color-accent)]">your device</span>
+          </div>
+          <div class="text-[var(--color-fg-muted)] mt-0.5">
+            Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll connect automatically. No invite link needed.
+          </div>
+        </div>
+      </div>
+
       <div class="rounded-lg border border-[var(--color-border)] p-6 mb-6">
         <h2 class="text-xl font-semibold mb-1">What do you want to do?</h2>
         <p class="text-sm text-[var(--color-fg-muted)] mb-5">
@@ -2278,6 +2294,44 @@ import { site } from "../site.config";
     };
 
     /**
+     * Paired-device flow with EXPLICIT role choice. Eliminates the "both
+     * devices think they're host" glare bug entirely — host vs join is
+     * decided by the user's tap on this screen, not by who happened to
+     * arrive at the signaling server first. One device picks Send, the
+     * other picks Receive, both derive the same room from the pair
+     * secret, and the handshake completes deterministically.
+     */
+    const bootPaired = async (pair: Pair, asRole: "sender" | "receiver") => {
+      const room = await deriveRoomId(pair.secret);
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      role = asRole;
+      wireSession(session);
+
+      session.emitter.on("state", (state) => {
+        if (state === "connected") {
+          activePair = pair;
+          const badge = document.getElementById("chat-trusted-badge");
+          if (badge) badge.classList.remove("hidden");
+          addWarning(`✓ Connected to ${pair.nickname}`);
+          renderDevices();
+          const disc = document.getElementById("manual-disconnect");
+          if (disc) disc.classList.remove("hidden");
+        }
+      });
+
+      if (asRole === "sender") {
+        setStatus(
+          "signaling",
+          `Ready to send to ${pair.nickname}. Open ${pair.nickname} and tap "Receive files".`,
+        );
+        await session.hostAuto(room);
+      } else {
+        setStatus("signaling", `Waiting for ${pair.nickname} to start sending…`);
+        await session.joinAuto(room);
+      }
+    };
+
+    /**
      * Race ALL paired devices in parallel — for each pair, spin up a session
      * on the derived room (host or join depending on pair.iAmHost). The first
      * one to reach "connected" wins; the rest get destroyed.
@@ -2718,9 +2772,19 @@ import { site } from "../site.config";
       role = "receiver";
       bootRole();
     } else if (listPairs().length > 0 && !incomingPair) {
-      // Paired-device auto-connect: race all known pairs in parallel and
-      // hand control to the first one whose peer comes online.
-      bootDevicesAuto();
+      // Paired-device flow with EXPLICIT role choice — show the role picker
+      // even though we have paired devices, with a banner indicating which
+      // device we'll connect to. This eliminates the "both think they're
+      // host" glare bug because role is now decided by user intent, not
+      // by server arrival order.
+      const firstPair = listPairs()[0];
+      const banner = document.getElementById("role-paired-banner");
+      const bannerName = document.getElementById("role-paired-banner-name");
+      if (banner && bannerName) {
+        bannerName.textContent = firstPair.nickname;
+        banner.classList.remove("hidden");
+      }
+      rolePicker.classList.remove("hidden");
     } else {
       rolePicker.classList.remove("hidden");
     }
@@ -2728,6 +2792,17 @@ import { site } from "../site.config";
     roleSendBtn.onclick = () => {
       role = "sender";
       rolePicker.classList.add("hidden");
+      // If we have paired devices and we're NOT in paranoid mode, take the
+      // explicit-role paired path: derive the room from the pair secret and
+      // connect directly. No invite link needed.
+      const pairs = listPairs();
+      if (pairs.length > 0 && !paranoidToggle.checked) {
+        bootPaired(pairs[0], "sender").catch((e) => {
+          addWarning(`Pair connect failed: ${(e as Error).message}`);
+          rolePicker.classList.remove("hidden");
+        });
+        return;
+      }
       bootRole();
     };
     roleRecvBtn.onclick = () => {
@@ -2740,6 +2815,17 @@ import { site } from "../site.config";
       if (paranoidToggle.checked) {
         rolePicker.classList.add("hidden");
         bootRole();
+        return;
+      }
+      // Paired-device fast path: skip the "paste a link" step entirely and
+      // connect directly to our paired device on its derived room.
+      const pairs = listPairs();
+      if (pairs.length > 0) {
+        rolePicker.classList.add("hidden");
+        bootPaired(pairs[0], "receiver").catch((e) => {
+          addWarning(`Pair connect failed: ${(e as Error).message}`);
+          rolePicker.classList.remove("hidden");
+        });
         return;
       }
       // Reveal the "paste link" input. We don't actually boot until the
