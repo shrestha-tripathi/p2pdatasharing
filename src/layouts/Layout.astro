@@ -24,12 +24,31 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <link rel="icon" type="image/png" href={`${import.meta.env.BASE_URL}icon-192.png`} />
     <link rel="apple-touch-icon" href={`${import.meta.env.BASE_URL}apple-touch-icon.png`} />
     <link rel="manifest" href={`${import.meta.env.BASE_URL}manifest.webmanifest`} />
-    <meta name="theme-color" content="#0a0a0a" />
+    <!-- theme-color is updated at runtime by the bootstrap script below to
+         match the active theme; the meta tag is also patched on theme change. -->
+    <meta name="theme-color" content="#0a0a0a" id="theme-color-meta" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content={site.shortName} />
+
+    <!-- FOUC-killer: apply saved theme before any paint. Runs synchronously,
+         before stylesheets paint, so the page never flashes the wrong palette. -->
+    <script is:inline>
+      (function () {
+        try {
+          var saved = localStorage.getItem("p2pds:theme");
+          var theme = saved === "light" || saved === "dark" ? saved : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+          var meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) meta.setAttribute("content", theme === "light" ? "#ffffff" : "#0a0a0a");
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
 
     <meta property="og:title" content={fullTitle} />
     <meta property="og:description" content={description} />
@@ -59,6 +78,20 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
           });
         });
       }
+
+      // Global theme switcher. Exposed on window so any page (or inline
+      // header buttons) can flip the theme without reaching into module code.
+      window.__setTheme = function (theme) {
+        if (theme !== "light" && theme !== "dark") return;
+        document.documentElement.setAttribute("data-theme", theme);
+        try { localStorage.setItem("p2pds:theme", theme); } catch (_) {}
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", theme === "light" ? "#ffffff" : "#0a0a0a");
+        window.dispatchEvent(new CustomEvent("themechange", { detail: { theme: theme } }));
+      };
+      window.__getTheme = function () {
+        return document.documentElement.getAttribute("data-theme") || "dark";
+      };
     </script>
   </head>
   <body class="antialiased selection:bg-[var(--color-accent)] selection:text-white">

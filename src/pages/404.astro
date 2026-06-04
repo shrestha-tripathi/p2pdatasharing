@@ -4,13 +4,41 @@ import Layout from "../layouts/Layout.astro";
 
 <Layout title="404 — Lost in transit" description="The page you requested doesn't exist." noindex>
   <main class="min-h-screen flex items-center justify-center px-6 text-center">
-    <div>
-      <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Error 404</p>
-      <h1 class="mt-3 text-5xl md:text-7xl font-semibold tracking-tight">Lost in transit</h1>
-      <p class="mt-4 text-[var(--color-fg-muted)]">That page never made it through the data channel.</p>
-      <a href={import.meta.env.BASE_URL} class="mt-8 inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90">
-        Back home →
-      </a>
+    <div class="max-w-lg">
+      <!-- Glitchy "404" wordmark -->
+      <div class="relative inline-block">
+        <h1 aria-hidden="true" class="text-[7rem] md:text-[10rem] font-semibold leading-none tracking-tighter text-[var(--color-fg)] select-none">
+          404
+        </h1>
+        <span aria-hidden="true" class="absolute inset-0 text-[7rem] md:text-[10rem] font-semibold leading-none tracking-tighter text-[var(--color-accent)] select-none mix-blend-difference opacity-40 translate-x-[3px] -translate-y-[2px]">
+          404
+        </span>
+      </div>
+
+      <p class="mt-2 text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Lost in transit</p>
+      <h2 class="mt-3 text-2xl md:text-3xl font-semibold tracking-tight">
+        This packet never made it through the data channel.
+      </h2>
+      <p class="mt-4 text-[var(--color-fg-muted)]">
+        The page may have been moved or deleted — or maybe the link you followed had a typo.
+        No bytes were harmed in the making of this error.
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a href={import.meta.env.BASE_URL} class="inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90">
+          ← Back home
+        </a>
+        <a href={`${import.meta.env.BASE_URL}transfer`} class="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm font-medium no-underline transition-colors hover:bg-[var(--color-bg-muted)]">
+          Open transfer
+        </a>
+        <a href={`${import.meta.env.BASE_URL}how-it-works`} class="inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm font-medium no-underline transition-colors hover:bg-[var(--color-bg-muted)]">
+          How it works
+        </a>
+      </div>
+
+      <p class="mt-10 text-xs text-[var(--color-fg-subtle)] font-mono">
+        <span class="text-[var(--color-danger)]">ERR_PEER_NOT_FOUND</span> · no route to resource
+      </p>
     </div>
   </main>
 </Layout>

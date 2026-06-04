@@ -32,6 +32,15 @@ import { site } from "../site.config";
           <svg id="sound-icon-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>
           <svg id="sound-icon-off" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg>
         </button>
+        <button id="theme-toggle" type="button" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Toggle theme" title="Toggle light/dark mode">
+          <!-- moon (shown in light theme to suggest 'go dark') -->
+          <svg id="theme-icon-moon" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <!-- sun (shown in dark theme to suggest 'go light') -->
+          <svg id="theme-icon-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+        </button>
+        <button id="help-toggle" type="button" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
+        </button>
         <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Skip our signaling server — copy/paste the handshake yourself">
           <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
           <span class="relative inline-block">
@@ -2764,15 +2773,18 @@ import { site } from "../site.config";
     // ---------- Keyboard shortcut help overlay ----------
     const kbdOverlay = document.getElementById("kbd-overlay") as HTMLDivElement;
     const kbdOverlayClose = document.getElementById("kbd-overlay-close") as HTMLButtonElement;
+    const helpToggleBtn = document.getElementById("help-toggle") as HTMLButtonElement | null;
     const showKbdHelp = () => kbdOverlay.classList.remove("hidden");
     const hideKbdHelp = () => kbdOverlay.classList.add("hidden");
     kbdOverlayClose.addEventListener("click", hideKbdHelp);
+    helpToggleBtn?.addEventListener("click", () => {
+      if (kbdOverlay.classList.contains("hidden")) showKbdHelp();
+      else hideKbdHelp();
+    });
     kbdOverlay.addEventListener("click", (e) => {
-      // Click on backdrop (not the dialog body) closes.
       if (e.target === kbdOverlay) hideKbdHelp();
     });
     document.addEventListener("keydown", (e) => {
-      // Ignore when typing in a field.
       const t = e.target as HTMLElement | null;
       const tag = t?.tagName;
       const inField = tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable;
@@ -2788,5 +2800,22 @@ import { site } from "../site.config";
         else hideKbdHelp();
       }
     });
+
+    // ---------- Theme toggle ----------
+    const themeBtn = document.getElementById("theme-toggle") as HTMLButtonElement | null;
+    const themeIconSun = document.getElementById("theme-icon-sun");
+    const themeIconMoon = document.getElementById("theme-icon-moon");
+    const syncThemeIcons = () => {
+      const t = (window as any).__getTheme?.() || "dark";
+      // In dark mode show the SUN (click to go light); in light show MOON.
+      themeIconSun?.classList.toggle("hidden", t !== "dark");
+      themeIconMoon?.classList.toggle("hidden", t !== "light");
+    };
+    syncThemeIcons();
+    themeBtn?.addEventListener("click", () => {
+      const cur = (window as any).__getTheme?.() || "dark";
+      (window as any).__setTheme?.(cur === "dark" ? "light" : "dark");
+    });
+    window.addEventListener("themechange", syncThemeIcons);
   </script>
 </Layout>
