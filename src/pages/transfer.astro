@@ -384,6 +384,10 @@ import { site } from "../site.config";
           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
         </svg>
         <h2 class="text-sm font-semibold">Chat <span id="chat-peer-label" class="font-normal text-[var(--color-fg-muted)]"></span></h2>
+        <span id="chat-trusted-badge" class="hidden inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-accent)] text-[var(--color-accent)] uppercase tracking-[0.06em] font-medium">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+          Trusted
+        </span>
         <span class="ml-auto text-xs text-[var(--color-fg-subtle)]">End-to-end encrypted · Not saved anywhere</span>
       </header>
 
@@ -560,6 +564,10 @@ import { site } from "../site.config";
     type Role = "sender" | "receiver";
     let role: Role | null = null;
     let session: TeleportSession | null = null;
+    /** When auto-connect succeeds, we remember which pair "won" so the UI
+     *  can surface the trusted badge + disconnect button. Cleared on
+     *  destroy/disconnect. */
+    let activePair: Pair | null = null;
     // One-shot auto-recovery: if a sender's connection fails, rebuild on a fresh
     // room without bothering the user. Reset on manual retry or successful link.
     let autoReconnectAttempted = false;
@@ -2120,6 +2128,12 @@ import { site } from "../site.config";
      */
     let probeSessions: { session: TeleportSession; pair: Pair }[] = [];
     const bootDevicesAuto = async () => {
+      if (!getAutoAccept()) {
+        // User has explicitly disabled silent auto-connect — show the picker
+        // instead so they can choose send/receive manually.
+        rolePicker.classList.remove("hidden");
+        return;
+      }
       const pairs = listPairs();
       if (pairs.length === 0) {
         rolePicker.classList.remove("hidden");
@@ -2150,18 +2164,21 @@ import { site } from "../site.config";
               rolePicker.classList.add("hidden");
               session = s;
               role = pair.iAmHost ? "sender" : "receiver";
+              activePair = pair;
+              // Trusted badge on chat header
+              const badge = document.getElementById("chat-trusted-badge");
+              if (badge) badge.classList.remove("hidden");
               wireSession(s);
-              // Toast on the chat side as soon as it's wired
               const nickEl = $("nickname-input") as HTMLInputElement | null;
               if (nickEl) refreshIdentityLabels();
               addWarning(`✓ Auto-connected to ${pair.nickname}`);
-              // Destroy other probes
               for (const other of probeSessions) {
                 if (other.session !== s) {
                   try { other.session.destroy(); } catch {}
                 }
               }
               probeSessions = [{ session: s, pair }];
+              renderDevices();
             }
           });
 
@@ -2381,13 +2398,14 @@ import { site } from "../site.config";
         const li = document.createElement("li");
         li.className = "flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3";
         const dot = document.createElement("span");
-        dot.className = "size-2 rounded-full bg-[var(--color-fg-subtle)] shrink-0";
-        dot.title = "Offline";
+        const isActive = activePair?.secret === p.secret;
+        dot.className = `size-2 rounded-full shrink-0 ${isActive ? "bg-[var(--color-success)]" : "bg-[var(--color-fg-subtle)]"}`;
+        dot.title = isActive ? "Connected" : "Offline";
         dot.dataset.field = "presence";
         li.appendChild(dot);
         const label = document.createElement("span");
         label.className = "flex-1 text-sm font-medium truncate";
-        label.textContent = p.nickname;
+        label.textContent = p.nickname + (isActive ? " · connected" : "");
         li.appendChild(label);
         const meta = document.createElement("span");
         meta.className = "text-xs text-[var(--color-fg-subtle)]";
