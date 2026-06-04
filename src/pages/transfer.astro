@@ -431,6 +431,49 @@ import { site } from "../site.config";
       Your files never touch a cloud.
       <a href={`${import.meta.env.BASE_URL}privacy`} class="underline hover:text-[var(--color-fg)] no-underline-children">Read how we keep it private →</a>
     </p>
+
+    <!-- Keyboard-shortcut help overlay (toggled with ?) -->
+    <div id="kbd-overlay" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="kbd-overlay-title">
+      <div class="max-w-md w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-4">
+          <h3 id="kbd-overlay-title" class="font-semibold">Keyboard shortcuts</h3>
+          <button id="kbd-overlay-close" class="text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] text-xl leading-none" aria-label="Close">×</button>
+        </div>
+        <dl class="space-y-3 text-sm">
+          <div class="flex items-center justify-between gap-4">
+            <dt class="text-[var(--color-fg-muted)]">Show this help</dt>
+            <dd><kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">?</kbd></dd>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <dt class="text-[var(--color-fg-muted)]">Close any overlay</dt>
+            <dd><kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">Esc</kbd></dd>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <dt class="text-[var(--color-fg-muted)]">Paste image/file from clipboard</dt>
+            <dd>
+              <kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">Ctrl</kbd>
+              <span class="text-[var(--color-fg-subtle)]">+</span>
+              <kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">V</kbd>
+            </dd>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <dt class="text-[var(--color-fg-muted)]">Send chat message</dt>
+            <dd><kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">Enter</kbd></dd>
+          </div>
+          <div class="flex items-center justify-between gap-4">
+            <dt class="text-[var(--color-fg-muted)]">New line in chat</dt>
+            <dd>
+              <kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">Shift</kbd>
+              <span class="text-[var(--color-fg-subtle)]">+</span>
+              <kbd class="font-mono text-xs px-2 py-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)]">Enter</kbd>
+            </dd>
+          </div>
+        </dl>
+        <p class="mt-5 text-xs text-[var(--color-fg-subtle)]">
+          Tip: drag & drop files (or whole folders) anywhere on this page to queue them.
+        </p>
+      </div>
+    </div>
   </main>
 
   <script>
@@ -2715,6 +2758,34 @@ import { site } from "../site.config";
         session?.resumeIfStale();
       } else if (activeSendRow) {
         addWarning("Tab moved to background — transfer may slow until you return.");
+      }
+    });
+
+    // ---------- Keyboard shortcut help overlay ----------
+    const kbdOverlay = document.getElementById("kbd-overlay") as HTMLDivElement;
+    const kbdOverlayClose = document.getElementById("kbd-overlay-close") as HTMLButtonElement;
+    const showKbdHelp = () => kbdOverlay.classList.remove("hidden");
+    const hideKbdHelp = () => kbdOverlay.classList.add("hidden");
+    kbdOverlayClose.addEventListener("click", hideKbdHelp);
+    kbdOverlay.addEventListener("click", (e) => {
+      // Click on backdrop (not the dialog body) closes.
+      if (e.target === kbdOverlay) hideKbdHelp();
+    });
+    document.addEventListener("keydown", (e) => {
+      // Ignore when typing in a field.
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName;
+      const inField = tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable;
+      if (e.key === "Escape" && !kbdOverlay.classList.contains("hidden")) {
+        hideKbdHelp();
+        e.preventDefault();
+        return;
+      }
+      if (inField) return;
+      if (e.key === "?") {
+        e.preventDefault();
+        if (kbdOverlay.classList.contains("hidden")) showKbdHelp();
+        else hideKbdHelp();
       }
     });
   </script>
