@@ -2,12 +2,21 @@
  * File transfer protocol on top of an open RTCDataChannel.
  *
  * Wire format (over one channel):
- *   1. JSON string  → file metadata: { kind: "meta", name, size, mime }
- *   2. N × ArrayBuffer → file payload, in order
- *   (sender may then start another file by sending another meta header)
+ *   1. JSON  → file metadata: { kind: "meta", id, name, size, mime }
+ *   2. JSON  → receiver reply: { kind: "resumeAnswer", id, offset }
+ *      (sender waits for this before streaming bytes)
+ *   3. N × ArrayBuffer → file payload, starting at `offset`, in order
+ *   4. JSON  → optional: { kind: "done", id }  (advisory, future use)
  *
  * Receiver writes each chunk into the Origin Private File System (OPFS),
- * so RAM stays flat even for 100 GB transfers.
+ * keyed by the file's UUID so partials survive disconnects within the
+ * same browser session. On the next meta with the same `id`, the
+ * receiver reports `offset = existingPartial.size` so the sender resumes
+ * from there instead of restarting from byte 0.
+ *
+ * Backward compat: if a meta arrives WITHOUT an `id`, receiver behaves
+ * as the old protocol (fresh file, no resume) and sender skips the
+ * handshake wait.
  *
  * --- bug fix history ---
  * Earlier versions had a race condition where chunks arriving WHILE
@@ -21,6 +30,8 @@ import type { TeleportSession } from "./teleportSession";
 import { createEmitter } from "./emitter";
 
 export interface FileMeta {
+  /** Stable UUID per logical file — used to resume partials. */
+  id?: string;
   name: string;
   size: number;
   mime: string;
@@ -31,19 +42,30 @@ export interface TransferProgress {
   total: number;
   ratePerSec: number;
   etaSec: number;
+  /** Bytes that were already on disk before this attempt (resume). */
+  resumedFrom?: number;
 }
 
 export interface TransferEvents {
-  sendStart: FileMeta;
+  sendStart: FileMeta & { resumedFrom?: number };
   sendProgress: TransferProgress;
   sendComplete: FileMeta;
-  receiveStart: FileMeta;
+  receiveStart: FileMeta & { resumedFrom?: number };
   receiveProgress: TransferProgress;
   receiveComplete: { meta: FileMeta; file: File };
   error: Error;
 }
 
 const CHUNK_SIZE = 16 * 1024; // 16 KB — friendly RTCDataChannel default
+const RESUME_ANSWER_TIMEOUT_MS = 5_000;
+
+/** Crypto-quality UUID for file IDs. Falls back to Math.random for ancient browsers. */
+function makeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `f-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export class FileTransfer {
   readonly emitter = createEmitter<TransferEvents>();
@@ -55,6 +77,9 @@ export class FileTransfer {
   private rxBytes = 0;
   private rxStartTime = 0;
   private rxLastEmit = 0;
+
+  // Sender state: pending resumeAnswer resolvers, keyed by file id.
+  private pendingResumes = new Map<string, (offset: number) => void>();
 
   /**
    * Tail of the message-processing chain. Serializes ALL incoming
@@ -77,22 +102,43 @@ export class FileTransfer {
   /** Send a single file. */
   async send(file: File) {
     const meta: FileMeta = {
+      id: makeId(),
       name: file.name,
       size: file.size,
       mime: file.type || "application/octet-stream",
     };
-    this.emitter.emit("sendStart", meta);
 
     // 1. metadata header
     this.session.send(JSON.stringify({ kind: "meta", ...meta }));
 
-    // 2. stream chunks
-    const reader = file.stream().getReader();
-    let offset = 0;
+    // 2. wait for the receiver's resume-answer so we know where to start
+    const resumeOffset = await this.awaitResumeAnswer(meta.id!);
+
+    this.emitter.emit("sendStart", { ...meta, resumedFrom: resumeOffset });
+
+    // 3. stream chunks from the resume offset
+    const sliceFrom = resumeOffset > 0 && resumeOffset < file.size ? resumeOffset : 0;
+    const stream = sliceFrom > 0 ? file.slice(sliceFrom).stream() : file.stream();
+    const reader = stream.getReader();
+    let offset = sliceFrom;
     const start = performance.now();
     let lastEmit = 0;
 
     const ch = this.session.channel!;
+
+    // Handle edge case: receiver already has the complete file.
+    if (sliceFrom >= file.size) {
+      this.emitter.emit("sendProgress", {
+        bytes: meta.size,
+        total: meta.size,
+        ratePerSec: 0,
+        etaSec: 0,
+        resumedFrom: sliceFrom,
+      });
+      await this.drainBuffer(ch);
+      this.emitter.emit("sendComplete", meta);
+      return;
+    }
 
     while (true) {
       const { done, value } = await reader.read();
@@ -115,13 +161,15 @@ export class FileTransfer {
         const now = performance.now();
         if (now - lastEmit > 100) {
           const elapsed = (now - start) / 1000;
-          const rate = elapsed > 0 ? offset / elapsed : 0;
+          const sent = offset - sliceFrom;
+          const rate = elapsed > 0 ? sent / elapsed : 0;
           const remaining = (meta.size - offset) / Math.max(rate, 1);
           this.emitter.emit("sendProgress", {
             bytes: offset,
             total: meta.size,
             ratePerSec: rate,
             etaSec: remaining,
+            resumedFrom: sliceFrom,
           });
           lastEmit = now;
         }
@@ -132,8 +180,9 @@ export class FileTransfer {
       bytes: meta.size,
       total: meta.size,
       ratePerSec:
-        meta.size / Math.max((performance.now() - start) / 1000, 0.001),
+        (meta.size - sliceFrom) / Math.max((performance.now() - start) / 1000, 0.001),
       etaSec: 0,
+      resumedFrom: sliceFrom,
     });
 
     // Wait until the outgoing buffer is fully drained so we know the
@@ -174,6 +223,25 @@ export class FileTransfer {
     });
   }
 
+  /**
+   * Sender helper: wait for the receiver to tell us how many bytes it
+   * already has under this file's id. Resolves with the offset; falls
+   * back to 0 on timeout (legacy receiver — restart from scratch).
+   */
+  private awaitResumeAnswer(id: string): Promise<number> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (offset: number) => {
+        if (settled) return;
+        settled = true;
+        this.pendingResumes.delete(id);
+        resolve(offset);
+      };
+      this.pendingResumes.set(id, finish);
+      setTimeout(() => finish(0), RESUME_ANSWER_TIMEOUT_MS);
+    });
+  }
+
   // ---------- RECEIVER ----------
 
   /**
@@ -185,6 +253,11 @@ export class FileTransfer {
       try {
         const parsed = JSON.parse(data);
         if (parsed.kind === "meta") await this.beginReceive(parsed);
+        else if (parsed.kind === "resumeAnswer") {
+          // Sender side: a receiver told us where to resume from.
+          const resolver = this.pendingResumes.get(parsed.id);
+          if (resolver) resolver(Number(parsed.offset) || 0);
+        }
       } catch {
         /* non-JSON string — ignore */
       }
@@ -257,17 +330,51 @@ export class FileTransfer {
     }
 
     const root = await navigator.storage.getDirectory();
-    // Unique OPFS name so multiple files in one session don't collide.
-    const baseName = meta.name.replace(/[\\/]/g, "_");
-    const opfsName = `${Date.now().toString(36)}_${baseName}`;
-    this.rxFileHandle = await root.getFileHandle(opfsName, { create: true });
-    this.rxHandle = await this.rxFileHandle.createWritable();
+    let resumedFrom = 0;
+    let opfsName: string;
+
+    if (meta.id) {
+      // Resume-capable path: name OPFS file by stable id so we can find partials.
+      opfsName = meta.id;
+      try {
+        this.rxFileHandle = await root.getFileHandle(opfsName, { create: false });
+        const existing = await this.rxFileHandle.getFile();
+        if (existing.size > 0 && existing.size < meta.size) {
+          resumedFrom = existing.size;
+        } else if (existing.size >= meta.size) {
+          // Already complete locally — accept and reply with full offset.
+          // (Sender will skip ahead to size, then we'll emit complete from
+          // the next zero-byte write cycle… actually we need to emit now.)
+          this.session.send(JSON.stringify({ kind: "resumeAnswer", id: meta.id, offset: meta.size }));
+          this.emitter.emit("receiveComplete", { meta, file: existing });
+          // Don't open writable; nothing more to receive for this file.
+          this.rxFileHandle = null;
+          return;
+        }
+      } catch {
+        // No existing partial — create fresh
+        this.rxFileHandle = await root.getFileHandle(opfsName, { create: true });
+      }
+    } else {
+      // Legacy path (no id) — use a unique timestamp name, never resume.
+      const baseName = meta.name.replace(/[\\/]/g, "_");
+      opfsName = `${Date.now().toString(36)}_${baseName}`;
+      this.rxFileHandle = await root.getFileHandle(opfsName, { create: true });
+    }
+
+    this.rxHandle = await this.rxFileHandle.createWritable({ keepExistingData: resumedFrom > 0 });
     this.rxMeta = meta;
-    this.rxBytes = 0;
+    this.rxBytes = resumedFrom;
     this.rxStartTime = performance.now();
     this.rxLastEmit = 0;
 
-    this.emitter.emit("receiveStart", meta);
+    // Tell the sender where to resume from (or 0). Backward-compat note:
+    // a legacy sender won't be waiting for this and will just ignore it.
+    if (meta.id) {
+      this.session.send(JSON.stringify({ kind: "resumeAnswer", id: meta.id, offset: resumedFrom }));
+    }
+
+    this.emitter.emit("receiveStart", { ...meta, resumedFrom });
   }
 }
 
