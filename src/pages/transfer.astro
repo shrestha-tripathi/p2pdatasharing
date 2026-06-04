@@ -126,24 +126,11 @@ import { site } from "../site.config";
            so the panel + presence dots stay visible after a connection
            forms (role-picker hides on connect). -->
 
-      <!-- Paired-device banner — shown when user has paired devices, so
-           they know which device they'll connect to when they pick a role.
-           Eliminates the "both think they're host" race entirely by making
-           role assignment user-driven, not server-arrival-order driven. -->
+      <!-- Connect-mode toggle — only shown when user has paired devices.
+           Lets them pick between fast-path paired connect and the
+           generic link-sharing flow for sending to someone new. -->
       <div id="role-paired-banner" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-4 mb-4">
-        <div class="flex items-start gap-3">
-          <span class="size-2.5 rounded-full presence-dot-online mt-1.5 shrink-0"></span>
-          <div class="text-sm flex-1">
-            <div class="font-medium">
-              Paired with <span id="role-paired-banner-name" class="text-[var(--color-accent)]">your device</span>
-            </div>
-            <div class="text-[var(--color-fg-muted)] mt-0.5">
-              Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll connect automatically. No invite link needed.
-            </div>
-          </div>
-        </div>
-        <!-- Mode toggle: connect to paired device OR generate/paste link for someone new. -->
-        <div class="mt-4 flex gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-1 text-sm">
+        <div class="flex gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-1 text-sm">
           <button id="connect-mode-paired" type="button"
             class="flex-1 rounded px-3 py-1.5 font-medium bg-[var(--color-bg-muted)] text-[var(--color-fg)]">
             My paired device
@@ -153,6 +140,12 @@ import { site } from "../site.config";
             Someone else (link)
           </button>
         </div>
+        <p id="connect-mode-help" class="mt-3 text-xs text-[var(--color-fg-muted)]">
+          Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll auto-connect. No link needed.
+        </p>
+        <!-- Hidden placeholder retained for backwards-compat with JS that
+             writes to #role-paired-banner-name. Not displayed. -->
+        <span id="role-paired-banner-name" class="hidden"></span>
       </div>
 
       <div class="rounded-lg border border-[var(--color-border)] p-6 mb-6">
@@ -2656,8 +2649,8 @@ import { site } from "../site.config";
         li.className = "flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3";
         const dot = document.createElement("span");
         const isActive = activePair?.secret === p.secret;
-        dot.className = `size-2.5 rounded-full shrink-0 ${isActive ? "presence-dot-online" : "bg-[var(--color-fg-subtle)]"}`;
-        dot.title = isActive ? "Connected" : "Offline";
+        dot.className = `size-2.5 rounded-full shrink-0 ${isActive ? "bg-[var(--color-success)]" : "bg-[var(--color-fg-subtle)]"}`;
+        dot.title = isActive ? "Connected now" : "Offline";
         dot.dataset.field = "presence";
         li.appendChild(dot);
         const label = document.createElement("span");
@@ -2855,7 +2848,13 @@ import { site } from "../site.config";
       const inactiveCls = "text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]";
       cmPaired.className = `flex-1 rounded px-3 py-1.5 ${connectMode === "paired" ? activeCls : inactiveCls}`;
       cmStranger.className = `flex-1 rounded px-3 py-1.5 ${connectMode === "stranger" ? activeCls : inactiveCls}`;
-      // Update the role-button descriptions to match selected mode.
+      // Update the help text + role-button descriptions based on mode.
+      const help = document.getElementById("connect-mode-help");
+      if (help) {
+        help.innerHTML = connectMode === "paired"
+          ? "Pick <strong>Send</strong> on one device and <strong>Receive</strong> on the other — they'll auto-connect. No link needed."
+          : "Generate or paste a one-time invite link — for sending files to someone who isn't on your paired devices.";
+      }
       const sendDesc = document.querySelector("#role-send p");
       const recvDesc = document.querySelector("#role-receive p");
       if (sendDesc && recvDesc) {
