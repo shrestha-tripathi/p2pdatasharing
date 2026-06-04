@@ -767,6 +767,13 @@ import { site } from "../site.config";
       receivedItems.length = 0;
       saveAllBar.classList.add("hidden");
       resetBar.classList.add("hidden");
+      // Receiver: re-show the "waiting for files" indicator so the user
+      // knows the connection is still live and ready for more transfers.
+      // Without this, clearing collapses the panel into an empty void
+      // and looks like the session ended.
+      if (role === "receiver" && lastSessionState === "connected") {
+        receiverWait.classList.remove("hidden");
+      }
     };
 
     resetClearBtn.addEventListener("click", clearCompletedRows);
