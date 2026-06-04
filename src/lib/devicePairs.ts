@@ -37,6 +37,14 @@ export interface Pair {
    * any signaling-server changes.
    */
   iAmHost: boolean;
+  /**
+   * Stable deviceId of the partner device on the other end of this pair.
+   * Initially unknown — auto-learned the first time we see the partner
+   * online in the lobby. Used to de-duplicate two pair-secrets that
+   * connect to the same partner device (which happens whenever both
+   * sides hit "Add device" instead of one side accepting via link).
+   */
+  partnerDeviceId?: string;
 }
 
 // ---------- Crypto primitives ----------
@@ -130,6 +138,9 @@ function readPairs(): Pair[] {
       // Back-compat: pairs saved before phase 3 had no role flag.
       // Assume host (the originator was the most common first-mover).
       iAmHost: typeof (p as Pair).iAmHost === "boolean" ? (p as Pair).iAmHost : true,
+      partnerDeviceId: typeof (p as Pair).partnerDeviceId === "string"
+        ? (p as Pair).partnerDeviceId
+        : undefined,
     }));
   } catch {
     return [];
@@ -188,6 +199,72 @@ export function renamePair(secret: string, nickname: string): boolean {
 
 export function findPair(secret: string): Pair | undefined {
   return readPairs().find((p) => p.secret === secret);
+}
+
+/**
+ * Record the partner's stable deviceId on this pair, and auto-merge any
+ * other pair we hold that connects to the same partner device.
+ *
+ * This happens when both devices independently hit "Add device" and
+ * scanned each other's QR — we end up with TWO pair-secrets both
+ * pointing at the same partner. As soon as we see the partner online
+ * in one pair's lobby we learn their deviceId, and can collapse the
+ * duplicate.
+ *
+ * Merge rule (option 'a'): keep the OLDEST pair (preserves the first
+ * nickname the user picked). Newer duplicates are removed.
+ *
+ * Returns:
+ *   - the kept Pair (with partnerDeviceId set) if this pair was kept
+ *   - undefined if THIS pair was the duplicate that got removed
+ */
+export function setPartnerDeviceId(secret: string, partnerDeviceId: string): Pair | undefined {
+  if (!partnerDeviceId) return undefined;
+  const pairs = readPairs();
+  const target = pairs.find((p) => p.secret === secret);
+  if (!target) return undefined;
+
+  // Idempotent — nothing to do if already set to the same partner.
+  if (target.partnerDeviceId === partnerDeviceId) return target;
+
+  target.partnerDeviceId = partnerDeviceId;
+
+  // Find every other pair pointing at the same partnerDeviceId.
+  const dupes = pairs.filter(
+    (p) => p.secret !== secret && p.partnerDeviceId === partnerDeviceId,
+  );
+  if (dupes.length === 0) {
+    writePairs(pairs);
+    return target;
+  }
+
+  // Oldest-wins: among target+dupes, keep the one with the smallest addedAt.
+  const candidates = [target, ...dupes];
+  const winner = candidates.reduce((a, b) => (a.addedAt <= b.addedAt ? a : b));
+  // Preserve the winner's nickname (user's first naming choice).
+  const losers = candidates.filter((p) => p.secret !== winner.secret);
+  const next = pairs.filter((p) => !losers.some((l) => l.secret === p.secret));
+  writePairs(next);
+  return winner.secret === target.secret ? target : undefined;
+}
+
+/**
+ * Same as listPairs() but with same-partner duplicates collapsed
+ * (one entry per partnerDeviceId, oldest wins). Pairs whose partner
+ * hasn't been seen yet (partnerDeviceId undefined) are always shown.
+ */
+export function listPairsDeduped(): Pair[] {
+  const pairs = readPairs();
+  // Bucket pairs without a known partnerDeviceId — never deduped.
+  const noPartner = pairs.filter((p) => !p.partnerDeviceId);
+  // Among pairs with a known partnerDeviceId, keep the oldest per partner.
+  const byPartner = new Map<string, Pair>();
+  for (const p of pairs) {
+    if (!p.partnerDeviceId) continue;
+    const prev = byPartner.get(p.partnerDeviceId);
+    if (!prev || p.addedAt < prev.addedAt) byPartner.set(p.partnerDeviceId, p);
+  }
+  return [...noPartner, ...byPartner.values()];
 }
 
 // ---------- Auto-accept toggle ----------

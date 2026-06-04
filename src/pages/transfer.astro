@@ -599,9 +599,10 @@ import { site } from "../site.config";
     import { ChatManager, type ChatMessage } from "../lib/chat";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
     import {
-      listPairs, upsertPair, removePair, generatePairSecret,
+      listPairs, listPairsDeduped, upsertPair, removePair, generatePairSecret,
       buildPairUrl, parsePairFragment, getAutoAccept, setAutoAccept,
       deriveRoomId, deriveLobbyId, generateSessionRoomId,
+      setPartnerDeviceId,
       getDeviceId, getMyNickname, setMyNickname, hasCustomNickname,
       type Pair,
     } from "../lib/devicePairs";
@@ -2420,12 +2421,24 @@ import { site } from "../site.config";
     //   3. Receiver gets `invite-received`, auto-accepts (or prompts),
     //      then both connect to the sessionRoomId via TeleportSession.
     //   4. Inviter is host, invitee is join — deterministic, no glare.
-    let lobby: DeviceLobby | null = null;
-    let lobbyPair: Pair | null = null;
-    let currentRoster: RosterEntry[] = [];
-    // Tracks outgoing invites so we know which sessionRoomId we're
-    // waiting on an ack for.
-    let pendingInvite: { toDeviceId: string; sessionRoomId: string } | null = null;
+    // ─── Multi-lobby state ──────────────────────────────────────
+    // We open ONE WebSocket per paired secret in parallel so the sender
+    // can see every online paired device, and the receiver is reachable
+    // via any of its pairs. Rosters are merged into a single unified
+    // view (deduped by deviceId) for the UI.
+    interface LobbyHandle {
+      pair: Pair;
+      lobby: DeviceLobby;
+      roster: RosterEntry[];
+    }
+    let lobbies: LobbyHandle[] = [];
+    let lobbyRole: "sender" | "receiver" | null = null;
+    // Tracks outgoing invite so we know which sessionRoomId we're
+    // waiting on an ack for, and which pair it went out on.
+    let pendingInvite: { toDeviceId: string; sessionRoomId: string; pairSecret: string } | null = null;
+    // Receiver: once accepted, lock the active pair so other lobbies
+    // don't keep firing invite handlers.
+    let receiverBusy = false;
 
     // DOM refs for the lobby UI
     const lobbySenderPanel = $("lobby-sender");
@@ -2442,20 +2455,75 @@ import { site } from "../site.config";
     const lobbyInviteAccept = $<HTMLButtonElement>("lobby-invite-accept");
     const lobbyInviteDecline = $<HTMLButtonElement>("lobby-invite-decline");
 
-    const stopLobby = () => {
-      if (lobby) {
-        try { lobby.stop(); } catch { /* */ }
-        lobby = null;
+    const stopAllLobbies = () => {
+      for (const h of lobbies) {
+        try { h.lobby.stop(); } catch { /* */ }
       }
-      lobbyPair = null;
-      currentRoster = [];
+      lobbies = [];
+      lobbyRole = null;
       pendingInvite = null;
+      receiverBusy = false;
     };
 
-    /** Render the sender's list of online devices (excluding ourselves). */
-    const renderLobbySenderList = () => {
+    /**
+     * Merged roster across all paired lobbies, deduped by deviceId.
+     * Same deviceId can show up in multiple pair lobbies if both sides
+     * pair-added each other — we collapse to one entry and remember
+     * which pair we'd use to invite/answer them.
+     */
+    interface UnifiedRosterEntry extends RosterEntry {
+      pair: Pair;
+      lobby: DeviceLobby;
+    }
+    const buildUnifiedRoster = (): UnifiedRosterEntry[] => {
       const myId = getDeviceId();
-      const others = currentRoster.filter((p) => p.deviceId !== myId);
+      const byDeviceId = new Map<string, UnifiedRosterEntry>();
+      for (const h of lobbies) {
+        for (const peer of h.roster) {
+          if (peer.deviceId === myId) continue;
+          // Prefer the entry with the most "useful" role (sending/receiving
+          // beats available — shows actual state).
+          const existing = byDeviceId.get(peer.deviceId);
+          const candidate: UnifiedRosterEntry = { ...peer, pair: h.pair, lobby: h.lobby };
+          if (!existing) {
+            byDeviceId.set(peer.deviceId, candidate);
+          } else {
+            // Prefer non-"available" role for liveness signal
+            const rank = (r: string) => r === "available" ? 0 : 1;
+            if (rank(candidate.role) > rank(existing.role)) {
+              byDeviceId.set(peer.deviceId, candidate);
+            }
+          }
+        }
+      }
+      return Array.from(byDeviceId.values());
+    };
+
+    /**
+     * When we see a peer in a pair's lobby, that peer IS the partner for
+     * that pair (lobbies are scoped per pair-secret). Persist their
+     * deviceId on the pair record + trigger dedup of any other pair we
+     * have that already points at the same partner.
+     */
+    const learnPartnerDeviceIds = (h: LobbyHandle) => {
+      const myId = getDeviceId();
+      for (const peer of h.roster) {
+        if (peer.deviceId === myId) continue;
+        if (h.pair.partnerDeviceId === peer.deviceId) continue;
+        const kept = setPartnerDeviceId(h.pair.secret, peer.deviceId);
+        // Update our in-memory pair handle (could be the kept one or removed).
+        if (kept) {
+          h.pair = kept;
+        }
+        // Refresh My Devices list since dedup may have removed entries.
+        try { renderDevices(); } catch { /* */ }
+        break; // exactly one partner per pair
+      }
+    };
+
+    /** Render the sender's unified list of online devices. */
+    const renderLobbySenderList = () => {
+      const others = buildUnifiedRoster();
       lobbySenderList.innerHTML = "";
       if (others.length === 0) {
         lobbySenderEmpty.classList.remove("hidden");
@@ -2497,24 +2565,24 @@ import { site } from "../site.config";
       }
     };
 
-    const inviteDevice = async (target: RosterEntry) => {
-      if (!lobby || !lobbyPair) return;
+    const inviteDevice = async (target: UnifiedRosterEntry) => {
       const sessionRoomId = generateSessionRoomId();
-      pendingInvite = { toDeviceId: target.deviceId, sessionRoomId };
+      pendingInvite = { toDeviceId: target.deviceId, sessionRoomId, pairSecret: target.pair.secret };
       setStatus("signaling", `Inviting ${target.nickname}…`);
-      lobby.invite(target.deviceId, sessionRoomId);
+      target.lobby.invite(target.deviceId, sessionRoomId);
       // Pre-create the TeleportSession as host on the fresh session room
       // so the data channel is ready the moment they accept.
       role = "sender";
       session = new TeleportSession({ signalingUrl: site.signalingUrl });
       wireSession(session);
-      activePair = lobbyPair;
+      activePair = target.pair;
       const badge = document.getElementById("chat-trusted-badge");
       if (badge) badge.classList.remove("hidden");
       session.emitter.on("state", (state) => {
         if (state === "connected") {
           addWarning(`✓ Connected to ${target.nickname}`);
-          if (lobby) lobby.setRole("sending");
+          // Mark ourselves "sending" across all our lobbies so peers see it.
+          for (const h of lobbies) h.lobby.setRole("sending");
           renderDevices();
           const disc = document.getElementById("manual-disconnect");
           if (disc) disc.classList.remove("hidden");
@@ -2527,22 +2595,32 @@ import { site } from "../site.config";
       }
     };
 
-    const handleIncomingInvite = (invite: { fromDeviceId: string; fromNickname: string; sessionRoomId: string }) => {
+    const handleIncomingInvite = (
+      h: LobbyHandle,
+      invite: { fromDeviceId: string; fromNickname: string; sessionRoomId: string },
+    ) => {
+      if (receiverBusy) {
+        // Already accepted another invite — politely decline this one.
+        h.lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, false, "Already in another session");
+        return;
+      }
       const accept = async () => {
+        receiverBusy = true;
         lobbyInviteConfirm.classList.add("hidden");
         lobbyReceiverStatus.textContent = `Connecting to ${invite.fromNickname}…`;
-        if (lobby) lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, true);
+        h.lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, true);
         // Join the session room as receiver.
         role = "receiver";
         session = new TeleportSession({ signalingUrl: site.signalingUrl });
         wireSession(session);
-        activePair = lobbyPair;
+        activePair = h.pair;
         const badge = document.getElementById("chat-trusted-badge");
         if (badge) badge.classList.remove("hidden");
         session.emitter.on("state", (state) => {
           if (state === "connected") {
             addWarning(`✓ Connected to ${invite.fromNickname}`);
-            if (lobby) lobby.setRole("receiving");
+            // Mark ourselves "receiving" across all lobbies.
+            for (const lh of lobbies) lh.lobby.setRole("receiving");
             renderDevices();
             const disc = document.getElementById("manual-disconnect");
             if (disc) disc.classList.remove("hidden");
@@ -2552,80 +2630,86 @@ import { site } from "../site.config";
           await session.joinAuto(invite.sessionRoomId);
         } catch (e) {
           addWarning(`Connect failed: ${(e as Error).message}`);
+          receiverBusy = false;
         }
       };
       const decline = () => {
         lobbyInviteConfirm.classList.add("hidden");
-        if (lobby) lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, false, "Declined by user");
+        h.lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, false, "Declined by user");
         lobbyReceiverStatus.textContent = "Waiting for a sender to invite you…";
       };
-
-      if (getAutoAccept()) {
-        accept();
-        return;
-      }
-      // Manual accept — show the confirm dialog.
+      if (getAutoAccept()) { accept(); return; }
       lobbyInviteFrom.textContent = invite.fromNickname;
       lobbyInviteConfirm.classList.remove("hidden");
       lobbyInviteAccept.onclick = accept;
       lobbyInviteDecline.onclick = decline;
     };
 
-    const bootLobby = async (pair: Pair, asRole: "sender" | "receiver") => {
-      stopLobby();
-      lobbyPair = pair;
+    /**
+     * Open lobbies for ALL paired devices in parallel. Both sender and
+     * receiver call this — sender renders the unified roster + waits for
+     * a tap; receiver shows "you're online" and waits for any invite.
+     */
+    const bootLobby = async (_unused: Pair, asRole: "sender" | "receiver") => {
+      stopAllLobbies();
+      lobbyRole = asRole;
       statusCard.classList.remove("hidden");
-      const lobbyId = await deriveLobbyId(pair.secret);
-      lobby = new DeviceLobby({
-        signalingUrl: site.signalingUrl,
-        lobbyId,
-        deviceId: getDeviceId(),
-        nickname: getMyNickname(),
-        role: asRole === "sender" ? "available" : "available",
-      });
+      const pairs = listPairsDeduped();
+      if (pairs.length === 0) return;
 
-      lobby.on("roster", (peers) => {
-        currentRoster = peers;
-        if (asRole === "sender") renderLobbySenderList();
-      });
-      lobby.on("invite", (invite) => {
-        if (asRole === "receiver") handleIncomingInvite(invite);
-      });
-      lobby.on("inviteAck", (ack) => {
-        if (asRole !== "sender" || !pendingInvite) return;
-        if (ack.sessionRoomId !== pendingInvite.sessionRoomId) return;
-        if (!ack.accepted) {
-          addWarning(`Invite declined: ${ack.reason ?? "no reason given"}`);
-          setStatus("signaling", "Pick another device or try again.");
-          try { session?.destroy(); } catch { /* */ }
-          session = null;
-          pendingInvite = null;
-        }
-      });
-      lobby.on("open", () => {
-        if (asRole === "sender") {
-          setStatus("signaling", "Looking for your online devices…");
-        } else {
-          setStatus("signaling", "You're online. Waiting for an invite…");
-        }
-      });
-      lobby.on("error", (msg) => addWarning(`Lobby: ${msg}`));
-      lobby.start();
+      for (const pair of pairs) {
+        const lobbyId = await deriveLobbyId(pair.secret);
+        const handle: LobbyHandle = {
+          pair,
+          lobby: new DeviceLobby({
+            signalingUrl: site.signalingUrl,
+            lobbyId,
+            deviceId: getDeviceId(),
+            nickname: getMyNickname(),
+            role: "available",
+          }),
+          roster: [],
+        };
+        const lobbyRef = handle.lobby;
+        lobbyRef.on("roster", (peers) => {
+          handle.roster = peers;
+          learnPartnerDeviceIds(handle);
+          if (asRole === "sender") renderLobbySenderList();
+        });
+        lobbyRef.on("invite", (invite) => {
+          if (asRole === "receiver") handleIncomingInvite(handle, invite);
+        });
+        lobbyRef.on("inviteAck", (ack) => {
+          if (asRole !== "sender" || !pendingInvite) return;
+          if (ack.sessionRoomId !== pendingInvite.sessionRoomId) return;
+          if (!ack.accepted) {
+            addWarning(`Invite declined: ${ack.reason ?? "no reason given"}`);
+            setStatus("signaling", "Pick another device or try again.");
+            try { session?.destroy(); } catch { /* */ }
+            session = null;
+            pendingInvite = null;
+          }
+        });
+        lobbyRef.on("error", (msg) => addWarning(`Lobby (${pair.nickname}): ${msg}`));
+        lobbyRef.start();
+        lobbies.push(handle);
+      }
 
       if (asRole === "sender") {
         lobbySenderPanel.classList.remove("hidden");
+        setStatus("signaling", "Looking for your online devices…");
         renderLobbySenderList();
       } else {
         lobbyReceiverPanel.classList.remove("hidden");
         lobbyReceiverNickname.textContent = getMyNickname();
+        setStatus("signaling", "You're online. Waiting for an invite…");
       }
     };
 
     // Wire lobby UI buttons
     lobbySenderSwitchLink.onclick = () => {
-      stopLobby();
+      stopAllLobbies();
       lobbySenderPanel.classList.add("hidden");
-      // Switch to stranger/link mode and re-trigger sender flow.
       connectMode = "stranger";
       updateConnectModeUI();
       bootRole();
@@ -2635,19 +2719,16 @@ import { site } from "../site.config";
       if (newName && newName.trim()) {
         setMyNickname(newName);
         lobbyReceiverNickname.textContent = getMyNickname();
-        // Keep the My Devices "This device" label in sync.
-        try { refreshThisDeviceLabel(); } catch { /* defined later — safe */ }
-        if (lobby) {
-          // Re-announce with new nickname by recreating role state.
-          lobby.setRole("available"); // forces re-emit no-op
-          // Manual re-announce path: stop+restart with new opts.
-          stopLobby();
-          if (lobbyPair) bootLobby(lobbyPair, "receiver");
+        try { refreshThisDeviceLabel(); } catch { /* */ }
+        // Re-announce across all lobbies by stopping + restarting.
+        if (lobbyRole === "receiver") {
+          stopAllLobbies();
+          bootLobby(null as unknown as Pair, "receiver");
         }
       }
     };
     lobbyReceiverCancel.onclick = () => {
-      stopLobby();
+      stopAllLobbies();
       lobbyReceiverPanel.classList.add("hidden");
       rolePicker.classList.remove("hidden");
       setStatus("idle", "Pick a role to get started.");
@@ -2986,7 +3067,7 @@ import { site } from "../site.config";
     const pairIncomingCancel = $<HTMLButtonElement>("pair-incoming-cancel");
 
     const renderDevices = () => {
-      const pairs = listPairs();
+      const pairs = listPairsDeduped();
       devicesCount.textContent = pairs.length ? `· ${pairs.length}` : "";
       devicesList.innerHTML = "";
       if (pairs.length === 0) {
