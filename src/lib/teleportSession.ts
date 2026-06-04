@@ -29,6 +29,8 @@ export interface SessionEvents {
   error: Error;
   /** Detailed diagnostic snapshot — fired on every state change. */
   diag: DiagSnapshot;
+  /** Worker tells us if we're first ("host") or second ("join") in the room. */
+  serverRole: "host" | "join";
 }
 
 export interface DiagSnapshot {
@@ -240,6 +242,47 @@ export class TeleportSession {
     this.startConnectTimer();
   }
 
+  /**
+   * Paired-device entry point: open signaling and let the server tell us
+   * whether we're host (first to arrive) or join (second). Eliminates the
+   * "both peers think they're host" glare bug that breaks reconnect.
+   *
+   * Resolves once role is assigned and the appropriate handshake has been
+   * kicked off. The session reaches "connected" via the normal state events.
+   */
+  async connectAuto(roomId: string): Promise<"sender" | "receiver"> {
+    this.roomId = roomId;
+    this.emitter.emit("state", "signaling");
+
+    // Open signaling FIRST and capture role assignment before deciding what to do.
+    const rolePromise = new Promise<"sender" | "receiver">((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Role assignment timeout")), 8_000);
+      const off = this.emitter.on("serverRole", (r) => {
+        clearTimeout(timer);
+        off();
+        resolve(r === "host" ? "sender" : "receiver");
+      });
+    });
+
+    await this.openSignaling(roomId);
+    const decided = await rolePromise;
+    this.role = decided;
+
+    if (decided === "sender") {
+      // Host path: create data channel + offer (mirrors hostAuto).
+      const ch = this.peer.createDataChannel("file-payload");
+      this.attachChannel(ch);
+      const offer = await this.peer.createOffer();
+      await this.peer.setLocalDescription(offer);
+      this.cachedOffer = offer;
+      this.sendSignal({ type: "offer", payload: offer });
+    } else {
+      // Join path: just wait for the host's offer (mirrors joinAuto).
+      this.startConnectTimer();
+    }
+    return decided;
+  }
+
   // ---------- MANUAL (paranoid) MODE ----------
 
   /**
@@ -324,7 +367,12 @@ export class TeleportSession {
       } catch {
         return;
       }
-      if (msg.type === "offer") {
+      if (msg.type === "role") {
+        const r = (msg.payload as { role?: "host" | "join" })?.role;
+        if (r === "host" || r === "join") {
+          this.emitter.emit("serverRole", r);
+        }
+      } else if (msg.type === "offer") {
         await this.peer.setRemoteDescription(msg.payload as RTCSessionDescriptionInit);
         const answer = await this.peer.createAnswer();
         await this.peer.setLocalDescription(answer);
@@ -470,7 +518,7 @@ export class TeleportSession {
 }
 
 interface SignalMessage {
-  type: "offer" | "answer" | "candidate" | "join" | "error";
+  type: "offer" | "answer" | "candidate" | "join" | "error" | "role";
   payload: unknown;
 }
 

@@ -2321,10 +2321,11 @@ import { site } from "../site.config";
           const s = new TeleportSession({ signalingUrl: site.signalingUrl });
           probeSessions = [{ session: s, pair }];
           session = s;
-          role = pair.iAmHost ? "sender" : "receiver";
-          // wireSession MUST run before host/join — otherwise the "state"
-          // event for "connected" fires before transferPanel/dropZone/preview
-          // handlers are subscribed and the UI never reveals.
+          // Provisional role — will be reassigned by connectAuto based on
+          // server-side first/second arrival, so we don't rely on stored
+          // iAmHost (which breaks if either device clears storage or both
+          // somehow stored iAmHost=true).
+          role = "sender";
           wireSession(s);
 
           s.emitter.on("state", (state) => {
@@ -2342,10 +2343,16 @@ import { site } from "../site.config";
             }
           });
 
-          if (pair.iAmHost) {
-            await s.hostAuto(room);
-          } else {
-            await s.joinAuto(room);
+          // connectAuto handles host/join election server-side. Role gets
+          // re-pinned on the session AND mirrored to our local `role` var
+          // (needed by the failure-recovery paths in wireSession).
+          try {
+            const decidedRole = await s.connectAuto(room);
+            role = decidedRole;
+          } catch (e) {
+            // Role election timed out or signaling failed — fall through to
+            // the per-pair wait below; if we don't connect in 12s, move on.
+            addWarning(`Pair "${pair.nickname}" role election failed: ${(e as Error).message}`);
           }
 
           // Wait up to 12s for THIS pair to connect; if it doesn't, move on.

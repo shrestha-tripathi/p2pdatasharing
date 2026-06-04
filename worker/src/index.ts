@@ -155,6 +155,19 @@ export class RoomDO implements DurableObject {
     const isSecondPeer = this.peers.size === 1;
     this.peers.add(ws);
 
+    // Tell the client whether they're first ("host") or second ("join") in
+    // this room. Lets paired-device clients elect roles dynamically without
+    // relying on stored iAmHost — eliminates the "both think they're host"
+    // glare bug when peers refresh / re-pair / clear storage.
+    try {
+      ws.send(JSON.stringify({
+        type: "role",
+        payload: { role: isSecondPeer ? "join" : "host" },
+      }));
+    } catch {
+      /* peer may have closed instantly — ignore */
+    }
+
     // If this is the second peer, replay everything the first peer sent
     // while they were alone in the room.
     if (isSecondPeer && this.pendingForJoiner.length > 0) {
