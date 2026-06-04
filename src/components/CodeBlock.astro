@@ -1,0 +1,126 @@
+---
+/**
+ * CodeBlock — a syntax-highlighted code block for use in .astro pages.
+ *
+ * Uses Astro's built-in <Code> wrapper around Shiki, which respects the
+ * shikiConfig.themes in astro.config.mjs. Both light and dark palettes
+ * are emitted inline; the CSS variable swap in global.css activates the
+ * right one based on html[data-theme].
+ *
+ * Use this for any code block in a .astro file. For .md/.mdx content,
+ * fenced ```lang blocks go through the Astro markdown pipeline and pick
+ * up Shiki automatically — no component needed there.
+ */
+import { Code } from "astro:components";
+import type { BundledLanguage } from "shiki";
+
+interface Props {
+  /** Source code, as-is. Leading/trailing whitespace is trimmed. */
+  code: string;
+  /** Language for highlighting (e.g. 'js', 'ts', 'bash', 'json', 'html'). */
+  lang?: BundledLanguage;
+  /** Optional caption shown above the code (e.g. file name). */
+  filename?: string;
+}
+
+const { code, lang = "js", filename } = Astro.props;
+const trimmed = code.replace(/^\n+|\n+$/g, "");
+---
+
+<figure class="code-block">
+  {filename && (
+    <figcaption class="code-block__caption">
+      <span class="code-block__lang">{lang}</span>
+      <span class="code-block__filename">{filename}</span>
+    </figcaption>
+  )}
+  {!filename && (
+    <span class="code-block__lang-floating" aria-hidden="true">{lang}</span>
+  )}
+  <Code code={trimmed} lang={lang} themes={{ light: "github-light", dark: "github-dark" }} wrap />
+</figure>
+
+<style>
+  .code-block {
+    position: relative;
+    margin: 1.5rem 0;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--shiki-bg, var(--color-bg-subtle));
+  }
+
+  .code-block__caption {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.85rem;
+    background: var(--color-bg-muted);
+    border-bottom: 1px solid var(--color-border);
+    font-size: 0.75rem;
+    color: var(--color-fg-muted);
+  }
+
+  .code-block__lang {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    color: var(--color-fg-subtle);
+    font-family: var(--font-mono);
+  }
+
+  .code-block__filename {
+    font-family: var(--font-mono);
+    color: var(--color-fg);
+  }
+
+  /* When no filename caption, float the language badge top-right */
+  .code-block__lang-floating {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.75rem;
+    z-index: 1;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--color-fg-subtle);
+    opacity: 0.55;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  /* Shiki injects its own <pre><code> — we override its margin/padding/font
+     to fit our chrome. Tokens keep their own inline colors. */
+  .code-block :global(pre.astro-code) {
+    margin: 0;
+    padding: 1rem 1.15rem;
+    font-family: var(--font-mono);
+    font-size: 0.825rem;
+    line-height: 1.6;
+    overflow-x: auto;
+    border-radius: 0;
+    border: 0;
+  }
+
+  .code-block :global(pre.astro-code code) {
+    font-family: inherit;
+    font-size: inherit;
+    background: transparent !important;
+    border: 0;
+    padding: 0;
+    display: block;
+    /* Shiki with wrap=true emits each line in a <span class="line">;
+       ensure they each start on their own line. */
+    white-space: pre-wrap;
+    word-wrap: break-word;
+  }
+
+  /* Slightly more breathing room on wide screens */
+  @media (min-width: 768px) {
+    .code-block :global(pre.astro-code) {
+      padding: 1.25rem 1.4rem;
+      font-size: 0.85rem;
+    }
+  }
+</style>

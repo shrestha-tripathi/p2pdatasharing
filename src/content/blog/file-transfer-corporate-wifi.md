@@ -36,7 +36,7 @@ When direct connection fails, WebRTC falls back to a **TURN server** — a relay
 
 The data flow becomes:
 
-```
+```text
 Sender browser → TURN relay → Receiver browser
                  (both outbound)
 ```

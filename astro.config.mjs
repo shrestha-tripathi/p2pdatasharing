@@ -17,4 +17,18 @@ export default defineConfig({
   vite: {
     plugins: [tailwindcss()],
   },
+  // Shiki dual-theme syntax highlighting.
+  // - github-light  → applied by default
+  // - github-dark   → activated via CSS when html[data-theme="dark"] (see global.css)
+  // Astro emits both palettes inline; the CSS swap is zero-runtime.
+  // wrap=true → soft-wrap long lines on narrow viewports (mobile readability).
+  markdown: {
+    shikiConfig: {
+      themes: {
+        light: 'github-light',
+        dark: 'github-dark',
+      },
+      wrap: true,
+    },
+  },
 });
