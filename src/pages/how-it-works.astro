@@ -2,6 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 import Nav from "../components/Nav.astro";
 import Footer from "../components/Footer.astro";
+import MechanismAnimation from "../components/MechanismAnimation.astro";
 ---
 
 <Layout
@@ -17,6 +18,13 @@ import Footer from "../components/Footer.astro";
       A complete walkthrough of how WebFileSend moves a file from the sender's disk
       to the receiver's disk — across home WiFi, mobile data, corporate firewalls,
       or different continents — without a server ever seeing a single byte.
+    </p>
+
+    <div class="mt-12 mb-4">
+      <MechanismAnimation />
+    </div>
+    <p class="text-center text-sm text-[var(--color-fg-subtle)] mb-4">
+      The whole mechanism in one loop — read on for the engineering details.
     </p>
 
     <hr class="my-12 border-[var(--color-border)]" />

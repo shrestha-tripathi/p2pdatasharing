@@ -1,0 +1,596 @@
+---
+/**
+ * MechanismAnimation.astro
+ *
+ * Self-contained 3D-ish isometric animation that visualizes WebFileSend's
+ * three pillars in sequence:
+ *   1. 🌐 Connection (browser ↔ browser across networks, NAT traversal)
+ *   2. 🔐 Encryption (DTLS lock-up at both ends)
+ *   3. ⚡ Speed (chunked data packets streaming directly P2P)
+ *
+ * Pure CSS 3D + SVG — no JS framework, no animation library, no WebGL.
+ * Total weight: ~6KB gzipped. Respects prefers-reduced-motion.
+ *
+ * Used on: index.astro (between hero & feature grid) and how-it-works.astro
+ *          (replaces the static architecture SVG).
+ */
+---
+
+<div class="mechanism-wrap" aria-label="Animation showing how WebFileSend connects two browsers, encrypts the link, and streams files directly between them">
+  <div class="mechanism-stage" role="img">
+    <!-- Sender device -->
+    <div class="device sender">
+      <div class="device-face front">
+        <div class="device-screen">
+          <div class="device-title">Sender</div>
+          <div class="device-sub">Mumbai · WiFi</div>
+          <div class="device-file" aria-hidden="true">
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 3 14 8 19 8" />
+            </svg>
+            <span class="file-name">presentation.zip</span>
+          </div>
+          <div class="device-progress" aria-hidden="true">
+            <span class="bar"></span>
+          </div>
+        </div>
+        <span class="device-lock" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+        </span>
+      </div>
+      <div class="device-shadow" aria-hidden="true"></div>
+    </div>
+
+    <!-- The wire between them -->
+    <svg class="wire" viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="wireGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.65" />
+          <stop offset="50%" stop-color="var(--color-accent)" stop-opacity="1" />
+          <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.65" />
+        </linearGradient>
+        <linearGradient id="wireSolid" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="var(--color-accent)" />
+          <stop offset="100%" stop-color="var(--color-accent)" />
+        </linearGradient>
+      </defs>
+      <!-- Base dashed line (the "potential" connection) -->
+      <path class="wire-base"
+            d="M 0 100 Q 200 40 400 100"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-dasharray="4 6"
+            opacity="0.55" />
+      <!-- Solid energized wire that draws on -->
+      <path class="wire-live"
+            d="M 0 100 Q 200 40 400 100"
+            fill="none"
+            stroke="url(#wireGradient)"
+            stroke-width="3"
+            stroke-linecap="round" />
+    </svg>
+
+    <!-- Cloud server callout — fades out to emphasize "server stays out" -->
+    <div class="cloud-server" aria-hidden="true">
+      <svg class="cloud-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M17.5 19a4.5 4.5 0 1 0-1.5-8.75A6 6 0 0 0 4 12.5 4.5 4.5 0 0 0 5.5 19Z" />
+      </svg>
+      <div class="cloud-label">Signaling only</div>
+      <div class="cloud-sublabel">No files pass here</div>
+    </div>
+
+    <!-- Packet stream — 6 packets that fly across in sequence -->
+    <div class="packet-stream" aria-hidden="true">
+      <span class="packet" style="--i: 0">●</span>
+      <span class="packet" style="--i: 1">●</span>
+      <span class="packet" style="--i: 2">●</span>
+      <span class="packet" style="--i: 3">●</span>
+      <span class="packet" style="--i: 4">●</span>
+      <span class="packet" style="--i: 5">●</span>
+    </div>
+
+    <!-- Encryption ribbon — appears mid-wire during the "lock" phase -->
+    <div class="encryption-badge" aria-hidden="true">
+      <svg class="enc-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="5" y="11" width="14" height="9" rx="2" />
+        <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+      </svg>
+      <span class="enc-text">DTLS · End-to-end</span>
+    </div>
+
+    <!-- Receiver device -->
+    <div class="device receiver">
+      <div class="device-face front">
+        <div class="device-screen">
+          <div class="device-title">Receiver</div>
+          <div class="device-sub">Berlin · 5G</div>
+          <div class="device-file" aria-hidden="true">
+            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="file-name">presentation.zip</span>
+          </div>
+          <div class="device-progress" aria-hidden="true">
+            <span class="bar bar-rcv"></span>
+          </div>
+        </div>
+        <span class="device-lock" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="11" width="14" height="9" rx="2" />
+            <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+          </svg>
+        </span>
+      </div>
+      <div class="device-shadow" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <!-- Caption that rotates through the 3 pillars in sync -->
+  <div class="mechanism-caption" aria-hidden="true">
+    <span class="cap cap-0">
+      <span class="cap-dot"></span>
+      <strong>Direct connection.</strong> Browser-to-browser, any network.
+    </span>
+    <span class="cap cap-1">
+      <span class="cap-dot"></span>
+      <strong>End-to-end encrypted.</strong> Even we can't decrypt the stream.
+    </span>
+    <span class="cap cap-2">
+      <span class="cap-dot"></span>
+      <strong>Streaming straight to disk.</strong> No server hop, no upload step.
+    </span>
+  </div>
+
+  <!-- Screen-reader fallback summary -->
+  <p class="sr-only">
+    WebFileSend establishes a direct WebRTC connection between two browsers on different
+    networks. The connection is end-to-end encrypted with DTLS. File chunks then stream
+    directly peer-to-peer, never touching the signaling server.
+  </p>
+</div>
+
+<style>
+  /* ---------- Container ---------- */
+  .mechanism-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 920px;
+    margin: 0 auto;
+    perspective: 1400px;
+    perspective-origin: 50% 40%;
+  }
+
+  .mechanism-stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 2.4 / 1;
+    min-height: 280px;
+    transform-style: preserve-3d;
+    transform: rotateX(8deg);
+  }
+
+  /* ---------- Devices (sender / receiver) ---------- */
+  .device {
+    position: absolute;
+    top: 50%;
+    width: 22%;
+    min-width: 160px;
+    max-width: 220px;
+    transform-style: preserve-3d;
+    animation: device-float 6s ease-in-out infinite;
+  }
+
+  .device.sender {
+    left: 2%;
+    transform: translateY(-50%) rotateY(14deg);
+    animation-delay: -3s;
+  }
+
+  .device.receiver {
+    right: 2%;
+    transform: translateY(-50%) rotateY(-14deg);
+  }
+
+  .device-face {
+    position: relative;
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-bg-subtle);
+    border-radius: 14px;
+    padding: 14px 14px 12px;
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, var(--color-fg) 4%, transparent) inset,
+      0 14px 30px -10px color-mix(in srgb, var(--color-fg) 14%, transparent);
+    transform: translateZ(20px);
+  }
+
+  .device-screen {
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: 9px;
+    padding: 12px 12px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .device-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-fg);
+    letter-spacing: -0.005em;
+  }
+
+  .device-sub {
+    font-size: 10px;
+    color: var(--color-fg-subtle);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .device-file {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--color-bg-muted);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--color-fg-muted);
+  }
+
+  .file-icon {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    color: var(--color-fg-muted);
+  }
+
+  .file-name {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .device-progress {
+    position: relative;
+    height: 4px;
+    background: var(--color-bg-muted);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+
+  .device-progress .bar {
+    position: absolute;
+    inset: 0;
+    background: var(--color-accent);
+    width: 0%;
+    border-radius: 999px;
+    animation: bar-fill 7s ease-out infinite;
+  }
+
+  .device-progress .bar-rcv {
+    /* Receiver fills slightly behind sender */
+    animation: bar-fill 7s ease-out 0.5s infinite;
+  }
+
+  .device-lock {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-bg);
+    border: 1px solid var(--color-accent);
+    border-radius: 50%;
+    color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+    opacity: 0;
+    transform: scale(0.7);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    animation: lock-pop 7s ease-out infinite;
+  }
+
+  .device-lock svg {
+    width: 13px;
+    height: 13px;
+  }
+
+  .device-shadow {
+    position: absolute;
+    left: 8%;
+    right: 8%;
+    bottom: -22px;
+    height: 18px;
+    background: radial-gradient(
+      ellipse at center,
+      color-mix(in srgb, var(--color-fg) 18%, transparent) 0%,
+      transparent 70%
+    );
+    border-radius: 50%;
+    filter: blur(6px);
+    transform: translateZ(-20px);
+  }
+
+  /* ---------- The wire ---------- */
+  .wire {
+    position: absolute;
+    top: 50%;
+    left: 24%;
+    right: 24%;
+    width: 52%;
+    height: 200px;
+    transform: translateY(-50%) translateZ(10px);
+    overflow: visible;
+    color: var(--color-fg-muted);
+  }
+
+  .wire-live {
+    stroke-dasharray: 600;
+    stroke-dashoffset: 600;
+    animation: wire-draw 7s ease-out infinite;
+  }
+
+  /* ---------- Cloud (fades out to make the point) ---------- */
+  .cloud-server {
+    position: absolute;
+    top: -8px;
+    left: 50%;
+    transform: translateX(-50%) translateZ(60px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 8px 14px 10px;
+    border: 1px dashed var(--color-fg-subtle);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-bg) 92%, transparent);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    animation: cloud-fade 7s ease-in-out infinite;
+  }
+
+  .cloud-glyph {
+    width: 22px;
+    height: 22px;
+    color: var(--color-fg);
+    display: block;
+  }
+
+  .cloud-label {
+    font-size: 10px;
+    color: var(--color-fg);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .cloud-sublabel {
+    font-size: 9px;
+    color: var(--color-fg-muted);
+    letter-spacing: 0.02em;
+  }
+
+  /* ---------- Packet stream ---------- */
+  .packet-stream {
+    position: absolute;
+    top: 50%;
+    left: 24%;
+    right: 24%;
+    width: 52%;
+    height: 0;
+    transform: translateY(-50%) translateZ(15px);
+    pointer-events: none;
+  }
+
+  .packet {
+    position: absolute;
+    left: 0;
+    top: 0;
+    font-size: 10px;
+    line-height: 1;
+    color: var(--color-accent);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 60%, transparent);
+    opacity: 0;
+    animation: packet-fly 2.3s ease-in-out infinite;
+    animation-delay: calc(2.6s + var(--i) * 0.18s);
+    will-change: left, top, opacity;
+  }
+
+  /* ---------- Encryption badge ---------- */
+  .encryption-badge {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) translateY(-44px) translateZ(40px);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    background: var(--color-bg);
+    border: 1px solid var(--color-accent);
+    border-radius: 999px;
+    font-size: 10.5px;
+    color: var(--color-fg);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 12%, transparent);
+    opacity: 0;
+    animation: enc-pop 7s ease-out infinite;
+  }
+
+  .enc-glyph {
+    width: 12px;
+    height: 12px;
+    color: var(--color-accent);
+    display: block;
+  }
+
+  /* ---------- Caption ticker ---------- */
+  .mechanism-caption {
+    position: relative;
+    width: 100%;
+    margin-top: 24px;
+    min-height: 28px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--color-fg-muted);
+    letter-spacing: -0.005em;
+  }
+
+  .cap {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%) translateY(6px);
+    opacity: 0;
+    white-space: nowrap;
+    animation: cap-cycle 7s ease-in-out infinite;
+  }
+
+  .cap strong {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+
+  .cap-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    margin-right: 8px;
+    vertical-align: 1px;
+    box-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 60%, transparent);
+  }
+
+  .cap-0 { animation-delay: 0s; }
+  .cap-1 { animation-delay: -4.6s; } /* offset so cap-1 shows around 2.4s */
+  .cap-2 { animation-delay: -2.3s; } /* offset so cap-2 shows around 4.7s */
+
+  /* ---------- Keyframes ---------- */
+
+  /* Subtle hover/float on each device */
+  @keyframes device-float {
+    0%, 100% { transform: translateY(-52%) rotateY(14deg); }
+    50%      { transform: translateY(-48%) rotateY(14deg); }
+  }
+  .device.receiver { animation-name: device-float-r; }
+  @keyframes device-float-r {
+    0%, 100% { transform: translateY(-52%) rotateY(-14deg); }
+    50%      { transform: translateY(-48%) rotateY(-14deg); }
+  }
+
+  /* Wire draws in 0 → 1.5s, holds bright */
+  @keyframes wire-draw {
+    0%   { stroke-dashoffset: 600; opacity: 0; }
+    20%  { stroke-dashoffset: 0;   opacity: 1; }
+    100% { stroke-dashoffset: 0;   opacity: 1; }
+  }
+
+  /* Cloud fades from prominent → dim (still visible) as the wire energizes */
+  @keyframes cloud-fade {
+    0%   { opacity: 0;    transform: translateX(-50%) translateZ(60px) translateY(-4px); }
+    8%   { opacity: 1;    transform: translateX(-50%) translateZ(60px) translateY(0); }
+    25%  { opacity: 1;    transform: translateX(-50%) translateZ(60px) translateY(0); }
+    45%  { opacity: 0.45; transform: translateX(-50%) translateZ(60px) translateY(-2px); }
+    100% { opacity: 0.45; transform: translateX(-50%) translateZ(60px) translateY(-4px); }
+  }
+
+  /* Lock icons pop in during the encryption phase (~1.8s) */
+  @keyframes lock-pop {
+    0%, 22%   { opacity: 0; transform: scale(0.5); }
+    32%       { opacity: 1; transform: scale(1.15); }
+    38%, 92%  { opacity: 1; transform: scale(1); }
+    100%      { opacity: 0; transform: scale(0.8); }
+  }
+
+  /* Encryption badge pops in 1.8s, holds, fades */
+  @keyframes enc-pop {
+    0%, 25%   { opacity: 0; transform: translate(-50%, -50%) translateY(-32px) translateZ(40px) scale(0.85); }
+    35%       { opacity: 1; transform: translate(-50%, -50%) translateY(-44px) translateZ(40px) scale(1); }
+    65%       { opacity: 1; transform: translate(-50%, -50%) translateY(-44px) translateZ(40px) scale(1); }
+    78%       { opacity: 0; transform: translate(-50%, -50%) translateY(-48px) translateZ(40px) scale(0.92); }
+    100%      { opacity: 0; }
+  }
+
+  /* Packets fly along the wire path — `left` % is relative to .packet-stream */
+  @keyframes packet-fly {
+    0%   { opacity: 0; left: 0%;   top: 0px;   }
+    10%  { opacity: 1; left: 10%;  top: -10px; }
+    50%  { opacity: 1; left: 50%;  top: -26px; }
+    90%  { opacity: 1; left: 90%;  top: -10px; }
+    100% { opacity: 0; left: 100%; top: 0px;   }
+  }
+
+  /* Progress bar — sender fills, then a sec later receiver matches */
+  @keyframes bar-fill {
+    0%   { width: 0%; }
+    20%  { width: 0%; }
+    70%  { width: 100%; }
+    100% { width: 100%; }
+  }
+
+  /* Caption ticker — each label visible ~30% of the 7s loop */
+  @keyframes cap-cycle {
+    0%, 100% { opacity: 0; transform: translateX(-50%) translateY(6px); }
+    5%       { opacity: 1; transform: translateX(-50%) translateY(0); }
+    30%      { opacity: 1; transform: translateX(-50%) translateY(0); }
+    35%      { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 640px) {
+    .mechanism-stage {
+      aspect-ratio: 1.5 / 1;
+      min-height: 220px;
+      transform: rotateX(4deg);
+    }
+    .device { min-width: 130px; width: 30%; }
+    .device-screen { padding: 9px 10px 8px; }
+    .device-title { font-size: 12px; }
+    .device-sub { font-size: 9px; }
+    .device-file { font-size: 10px; padding: 5px 7px; }
+    .file-name { font-size: 9.5px; }
+    .cloud-server { padding: 6px 10px 8px; }
+    .cloud-glyph { font-size: 14px; }
+    .cloud-label { font-size: 9px; }
+    .cloud-sublabel { font-size: 8.5px; }
+    .encryption-badge { font-size: 9.5px; padding: 4px 8px; }
+    .mechanism-caption { font-size: 12px; min-height: 36px; }
+    .cap { white-space: normal; max-width: 90%; }
+  }
+
+  /* ---------- Reduced motion: show static "snapshot" of the final state ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    .device,
+    .device.receiver,
+    .wire-live,
+    .cloud-server,
+    .device-lock,
+    .encryption-badge,
+    .packet,
+    .device-progress .bar,
+    .cap {
+      animation: none !important;
+    }
+    .wire-live { stroke-dashoffset: 0; opacity: 1; }
+    .cloud-server { opacity: 0.5; }
+    .device-lock { opacity: 1; transform: scale(1); }
+    .encryption-badge { opacity: 1; }
+    .device-progress .bar { width: 100%; }
+    .cap-0 { opacity: 1; } /* show only the first caption when reduced */
+    .device.sender { transform: translateY(-50%) rotateY(14deg); }
+    .device.receiver { transform: translateY(-50%) rotateY(-14deg); }
+  }
+</style>
