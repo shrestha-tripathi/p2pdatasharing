@@ -544,6 +544,28 @@ import { site } from "../site.config";
     <!-- Warnings -->
     <div id="warnings" class="mt-6 space-y-3"></div>
 
+    <!-- Background-pause banner — shown briefly after the tab returns from
+         background while a transfer is in flight, so the user knows the
+         OS may have throttled the transfer while they were away. -->
+    <div
+      id="bg-pause-banner"
+      class="hidden fixed top-20 left-1/2 -translate-x-1/2 z-40 max-w-[min(420px,calc(100vw-2rem))] rounded-lg border border-[var(--color-warning,#f59e0b)] bg-[var(--color-bg)] shadow-xl p-4 flex items-start gap-3"
+      role="status"
+      aria-live="polite"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-[var(--color-warning,#f59e0b)] shrink-0 mt-0.5">
+        <path d="M12 9v4M12 17h.01" />
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      </svg>
+      <div class="flex-1 text-sm">
+        <div class="font-semibold">Welcome back!</div>
+        <div class="mt-0.5 text-[var(--color-fg-muted)]">
+          Your transfer may have slowed while the tab was in the background. Keep this tab visible for max speed.
+        </div>
+      </div>
+      <button id="bg-pause-banner-close" class="text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)] text-xl leading-none -mt-1" aria-label="Dismiss">×</button>
+    </div>
+
     <p class="mt-10 text-xs text-[var(--color-fg-subtle)] text-center">
       Your files never touch a cloud.
       <a href={`${import.meta.env.BASE_URL}privacy`} class="underline hover:text-[var(--color-fg)] no-underline-children">Read how we keep it private →</a>
@@ -608,6 +630,11 @@ import { site } from "../site.config";
     } from "../lib/devicePairs";
     import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
     import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
+    import {
+      trackBackgroundTransfer,
+      untrackBackgroundTransfer,
+      clearBackgroundNotification,
+    } from "../lib/backgroundWarning";
     import { site } from "../site.config";
     import QRCode from "qrcode";
     import { downloadZip } from "client-zip";
@@ -1650,6 +1677,8 @@ import { site } from "../site.config";
       transfer.emitter.on("sendStart", (m) => {
         // Keep screen on while a transfer is in flight (refcounted).
         void acquireWakeLock();
+        // Track for background-pause notifications (layer 2).
+        trackBackgroundTransfer();
         const existing = m.id ? sendRowsById.get(m.id) : undefined;
         if (existing) {
           activeSendRow = existing;
@@ -1668,6 +1697,7 @@ import { site } from "../site.config";
       transfer.emitter.on("sendComplete", (m) => {
         // Matched release for sendStart acquire.
         void releaseWakeLock();
+        untrackBackgroundTransfer();
         if (activeSendRow) {
           activeSendRow.action.classList.remove("hidden");
           activeSendRow.action.innerHTML = `<span class="text-sm text-[var(--color-success)]">✓ Sent ${formatBytes(m.size)}</span>`;
@@ -1685,6 +1715,7 @@ import { site } from "../site.config";
       transfer.emitter.on("receiveStart", (m) => {
         // Keep screen on for the duration of the receive (refcounted).
         void acquireWakeLock();
+        trackBackgroundTransfer();
         receiverWait.classList.add("hidden");
         const existing = m.id ? recvRowsById.get(m.id) : undefined;
         if (existing) {
@@ -1704,6 +1735,7 @@ import { site } from "../site.config";
       transfer.emitter.on("receiveComplete", ({ meta, file }) => {
         // Matched release for receiveStart acquire.
         void releaseWakeLock();
+        untrackBackgroundTransfer();
         playDingComplete();
         vibrate([80, 40, 80]);
         setTabTitle(`✓ Received · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
@@ -1765,6 +1797,7 @@ import { site } from "../site.config";
         // Best-effort release — error may fire mid-transfer, so drop our
         // wake-lock claim. The refcount can't go below zero by design.
         void releaseWakeLock();
+        untrackBackgroundTransfer();
         addWarning(e.message);
       });
     };
@@ -3505,6 +3538,42 @@ import { site } from "../site.config";
       } else if (activeSendRow) {
         addWarning("Tab moved to background — transfer may slow until you return.");
       }
+    });
+
+    // ---------- Background-pause banner (layer 2) ----------
+    // Tracks tab visibility: if the tab was hidden for >2s while a transfer
+    // was active, show a "welcome back" banner on return explaining the
+    // possible slowdown. The Notification API side (desktop toast while
+    // backgrounded) is handled in src/lib/backgroundWarning.ts.
+    const bgPauseBanner = document.getElementById("bg-pause-banner") as HTMLDivElement;
+    const bgPauseClose = document.getElementById("bg-pause-banner-close") as HTMLButtonElement;
+    let bgHiddenAt = 0;
+    let bgBannerHideTimer: number | null = null;
+    const hideBgBanner = () => {
+      bgPauseBanner.classList.add("hidden");
+      if (bgBannerHideTimer !== null) {
+        clearTimeout(bgBannerHideTimer);
+        bgBannerHideTimer = null;
+      }
+    };
+    bgPauseClose.addEventListener("click", hideBgBanner);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        bgHiddenAt = Date.now();
+        return;
+      }
+      // Visible again — show banner only if (a) a transfer is in flight,
+      // (b) the tab was hidden for >2s (skip incidental focus blips).
+      const hiddenFor = bgHiddenAt > 0 ? Date.now() - bgHiddenAt : 0;
+      bgHiddenAt = 0;
+      const transferInFlight = activeSendRow !== null || activeRecvRow !== null;
+      if (hiddenFor > 2000 && transferInFlight) {
+        bgPauseBanner.classList.remove("hidden");
+        if (bgBannerHideTimer !== null) clearTimeout(bgBannerHideTimer);
+        bgBannerHideTimer = window.setTimeout(hideBgBanner, 8000);
+      }
+      // Also clear any stale desktop notification once the user is back.
+      clearBackgroundNotification();
     });
 
     // ---------- Keyboard shortcut help overlay ----------
