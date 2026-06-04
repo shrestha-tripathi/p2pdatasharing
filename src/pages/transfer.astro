@@ -17,14 +17,20 @@ import { site } from "../site.config";
         <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Workspace</p>
         <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport files</h1>
       </div>
-      <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Skip our signaling server — copy/paste the handshake yourself">
-        <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
-        <span class="relative inline-block">
-          <input id="paranoid-toggle" type="checkbox" class="peer sr-only" />
-          <span class="block w-11 h-6 rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] transition-colors peer-checked:bg-[var(--color-accent)] peer-checked:border-[var(--color-accent)]"></span>
-          <span class="absolute top-[3px] left-[3px] size-4 rounded-full bg-[var(--color-bg)] border border-[var(--color-border-strong)] transition-transform shadow-sm peer-checked:translate-x-5 peer-checked:border-[var(--color-accent)]"></span>
-        </span>
-      </label>
+      <div class="flex items-center gap-5 flex-wrap">
+        <button id="sound-toggle" type="button" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Toggle sounds" title="Toggle sounds & vibration">
+          <svg id="sound-icon-on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM15.5 8.5a5 5 0 0 1 0 7M19 5a9 9 0 0 1 0 14"/></svg>
+          <svg id="sound-icon-off" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M11 5 6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/></svg>
+        </button>
+        <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Skip our signaling server — copy/paste the handshake yourself">
+          <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
+          <span class="relative inline-block">
+            <input id="paranoid-toggle" type="checkbox" class="peer sr-only" />
+            <span class="block w-11 h-6 rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] transition-colors peer-checked:bg-[var(--color-accent)] peer-checked:border-[var(--color-accent)]"></span>
+            <span class="absolute top-[3px] left-[3px] size-4 rounded-full bg-[var(--color-bg)] border border-[var(--color-border-strong)] transition-transform shadow-sm peer-checked:translate-x-5 peer-checked:border-[var(--color-accent)]"></span>
+          </span>
+        </label>
+      </div>
     </header>
 
     <!-- ROLE PICKER (shown when no role chosen yet) -->
@@ -409,6 +415,101 @@ import { site } from "../site.config";
     let lastSessionState: PeerConnState | "idle" = "idle";
     let lastMessageTs = 0;
 
+    // ---------- Mobile-native polish: sounds, vibration, tab title ----------
+    const SOUND_KEY = "p2pds:sound";
+    let soundOn = true;
+    try { soundOn = localStorage.getItem(SOUND_KEY) !== "0"; } catch {}
+    const soundToggle = $<HTMLButtonElement>("sound-toggle");
+    const soundIconOn = $("sound-icon-on");
+    const soundIconOff = $("sound-icon-off");
+    const refreshSoundIcon = () => {
+      soundIconOn.classList.toggle("hidden", !soundOn);
+      soundIconOff.classList.toggle("hidden", soundOn);
+    };
+    refreshSoundIcon();
+    soundToggle.addEventListener("click", () => {
+      soundOn = !soundOn;
+      try { localStorage.setItem(SOUND_KEY, soundOn ? "1" : "0"); } catch {}
+      refreshSoundIcon();
+      // Tiny ping on enable so user gets feedback the sound works
+      if (soundOn) playTone(660, 0.08, 0.04);
+    });
+
+    // Lazy AudioContext — Safari blocks creation until a user gesture, so
+    // we create on first toggle/play attempt.
+    let audioCtx: AudioContext | null = null;
+    const ensureCtx = (): AudioContext | null => {
+      if (audioCtx) return audioCtx;
+      try {
+        const Ctx = (window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext
+          || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (Ctx) audioCtx = new Ctx();
+      } catch { /* ignore */ }
+      return audioCtx;
+    };
+
+    /** Play a short tone. freq Hz, duration s, volume 0..1 */
+    const playTone = (freq: number, duration: number, volume = 0.06) => {
+      if (!soundOn) return;
+      const ctx = ensureCtx();
+      if (!ctx) return;
+      try {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        // Smooth attack/decay — no clicks
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0, now);
+        gain.gain.linearRampToValueAtTime(volume, now + 0.01);
+        gain.gain.linearRampToValueAtTime(0, now + duration);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + duration + 0.02);
+      } catch { /* AudioContext suspended or failed — silent */ }
+    };
+
+    const vibrate = (pattern: number | number[]) => {
+      if (!soundOn) return;
+      try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
+    };
+
+    /** Major-third "ding" — friendly for "done" notifications */
+    const playDingComplete = () => {
+      playTone(880, 0.12, 0.06);
+      setTimeout(() => playTone(1108, 0.18, 0.05), 90); // C#6 follow
+    };
+    /** Short rising chirp — peer just joined */
+    const playConnectChirp = () => {
+      playTone(523, 0.08, 0.05); // C5
+      setTimeout(() => playTone(784, 0.10, 0.05), 70); // G5
+    };
+    /** Low buzz — something went wrong */
+    const playFailBuzz = () => {
+      playTone(220, 0.18, 0.06);
+    };
+
+    // ---------- Tab title progress ----------
+    const originalTitle = document.title;
+    let titleResetTimer: number | undefined;
+    const setTabTitle = (text: string, autoResetMs?: number) => {
+      document.title = text;
+      if (titleResetTimer) clearTimeout(titleResetTimer);
+      if (autoResetMs) {
+        titleResetTimer = window.setTimeout(() => { document.title = originalTitle; }, autoResetMs);
+      }
+    };
+
+    // Throttle title updates during transfer so we don't thrash on every progress event
+    let lastTitlePct = -1;
+    const updateTitleProgress = (bytes: number, total: number, prefix: string) => {
+      const pct = total > 0 ? Math.round((bytes / total) * 100) : 0;
+      if (pct === lastTitlePct) return;
+      lastTitlePct = pct;
+      setTabTitle(`(${pct}%) ${prefix} · ${originalTitle.split(" | ")[1] || "Local Teleport"}`);
+    };
+
+
     // ---------- Helpers ----------
     const setStatus = (s: PeerConnState, detail = "") => {
       const map: Record<PeerConnState, { label: string; color: string }> = {
@@ -761,9 +862,16 @@ import { site } from "../site.config";
       });
 
       s.emitter.on("state", (state) => {
+        const prevState = lastSessionState;
         lastSessionState = state;
         setStatus(state);
         if (state === "connected") {
+          // Audio chirp + buzz only on the FIRST connect (not on reconnect),
+          // to avoid spamming on flaky networks.
+          if (prevState !== "connected") {
+            playConnectChirp();
+            vibrate(80);
+          }
           transferPanel.classList.remove("hidden");
           senderLink.classList.add("hidden");
           retryPanel.classList.add("hidden");
@@ -799,6 +907,9 @@ import { site } from "../site.config";
           chatSend.disabled = true;
           chatInput.disabled = true;
           chatInput.placeholder = "Peer disconnected";
+          playFailBuzz();
+          vibrate([100, 60, 100]);
+          setTabTitle(`✗ Disconnected · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 5000);
         }
         // NOTE: 'disconnected' is transient on mobile networks (ICE
         // renegotiation) — we deliberately do NOT disable chat on it.
@@ -845,6 +956,7 @@ import { site } from "../site.config";
       });
       transfer.emitter.on("sendProgress", (p) => {
         if (activeSendRow) updateRow(activeSendRow, p);
+        updateTitleProgress(p.bytes, p.total, "Sending");
       });
       transfer.emitter.on("sendComplete", (m) => {
         if (activeSendRow) {
@@ -852,6 +964,10 @@ import { site } from "../site.config";
           activeSendRow.action.innerHTML = `<span class="text-sm text-[var(--color-success)]">✓ Sent ${formatBytes(m.size)}</span>`;
         }
         activeSendRow = null;
+        playDingComplete();
+        vibrate(120);
+        setTabTitle(`✓ Sent · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
+        lastTitlePct = -1;
       });
 
       transfer.emitter.on("receiveStart", (m) => {
@@ -869,8 +985,13 @@ import { site } from "../site.config";
       });
       transfer.emitter.on("receiveProgress", (p) => {
         if (activeRecvRow) updateRow(activeRecvRow, p);
+        updateTitleProgress(p.bytes, p.total, "Receiving");
       });
       transfer.emitter.on("receiveComplete", ({ meta, file }) => {
+        playDingComplete();
+        vibrate([80, 40, 80]);
+        setTabTitle(`✓ Received · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
+        lastTitlePct = -1;
         if (activeRecvRow) {
           const row = activeRecvRow;
           row.action.classList.remove("hidden");
