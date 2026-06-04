@@ -105,6 +105,17 @@ import { site } from "../site.config";
         <button id="share-link-btn" class="hidden h-10 rounded-md border border-[var(--color-border)] px-4 text-sm font-medium hover:bg-[var(--color-bg-muted)]">Share</button>
         <button id="copy-link" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] transition-opacity hover:opacity-90">Copy</button>
       </div>
+      <div class="mt-4 flex items-center gap-4 flex-wrap">
+        <button id="qr-toggle" type="button" class="text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] inline-flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14h1M14 20h1M20 20h1"/></svg>
+          <span id="qr-toggle-label">Show QR code</span>
+        </button>
+        <span class="text-xs text-[var(--color-fg-subtle)]">Tap to scan from another device 📱</span>
+      </div>
+      <div id="qr-wrap" class="hidden mt-4 flex flex-col items-center gap-2">
+        <div id="qr-canvas-box" class="rounded-lg bg-white p-3 border border-[var(--color-border)]"></div>
+        <p class="text-xs text-[var(--color-fg-subtle)]">Scan with your phone camera</p>
+      </div>
       <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
         Keep this tab open. Once the receiver loads the link, you can drop files.
       </p>
@@ -304,6 +315,7 @@ import { site } from "../site.config";
     import { ChatManager, type ChatMessage } from "../lib/chat";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
     import { site } from "../site.config";
+    import QRCode from "qrcode";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -326,6 +338,10 @@ import { site } from "../site.config";
     const shareLink = $<HTMLInputElement>("share-link");
     const copyLinkBtn = $<HTMLButtonElement>("copy-link");
     const shareLinkBtn = $<HTMLButtonElement>("share-link-btn");
+    const qrToggle = $<HTMLButtonElement>("qr-toggle");
+    const qrToggleLabel = $("qr-toggle-label");
+    const qrWrap = $("qr-wrap");
+    const qrCanvasBox = $("qr-canvas-box");
     const retryPanel = $("retry-panel");
     const retryBtn = $<HTMLButtonElement>("retry-btn");
     const retryParanoidBtn = $<HTMLButtonElement>("retry-paranoid");
@@ -1182,6 +1198,38 @@ import { site } from "../site.config";
       autoGrow();
     };
 
+    let qrCurrentUrl = "";
+    const renderQrCode = async (url: string) => {
+      qrCurrentUrl = url;
+      qrWrap.classList.add("hidden");
+      qrToggleLabel.textContent = "Show QR code";
+      qrCanvasBox.innerHTML = "";
+    };
+
+    qrToggle.addEventListener("click", async () => {
+      if (!qrWrap.classList.contains("hidden")) {
+        qrWrap.classList.add("hidden");
+        qrToggleLabel.textContent = "Show QR code";
+        return;
+      }
+      if (!qrCurrentUrl) return;
+      try {
+        const canvas = document.createElement("canvas");
+        await QRCode.toCanvas(canvas, qrCurrentUrl, {
+          width: 220,
+          margin: 1,
+          errorCorrectionLevel: "M",
+          color: { dark: "#000000", light: "#ffffff" },
+        });
+        qrCanvasBox.innerHTML = "";
+        qrCanvasBox.appendChild(canvas);
+        qrWrap.classList.remove("hidden");
+        qrToggleLabel.textContent = "Hide QR code";
+      } catch (e) {
+        addWarning(`Failed to generate QR: ${(e as Error).message}`);
+      }
+    });
+
     const bootAutoSender = async () => {
       session = new TeleportSession({ signalingUrl: site.signalingUrl });
       wireSession(session);
@@ -1190,6 +1238,7 @@ import { site } from "../site.config";
       const url = `${location.origin}${import.meta.env.BASE_URL}transfer?r=${room}`;
       shareLink.value = url;
       senderLink.classList.remove("hidden");
+      renderQrCode(url);
       await session.hostAuto(room);
     };
 
