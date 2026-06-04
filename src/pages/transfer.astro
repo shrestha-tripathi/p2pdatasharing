@@ -607,6 +607,7 @@ import { site } from "../site.config";
       type Pair,
     } from "../lib/devicePairs";
     import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
+    import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
     import { site } from "../site.config";
     import QRCode from "qrcode";
     import { downloadZip } from "client-zip";
@@ -1647,6 +1648,8 @@ import { site } from "../site.config";
       };
 
       transfer.emitter.on("sendStart", (m) => {
+        // Keep screen on while a transfer is in flight (refcounted).
+        void acquireWakeLock();
         const existing = m.id ? sendRowsById.get(m.id) : undefined;
         if (existing) {
           activeSendRow = existing;
@@ -1663,6 +1666,8 @@ import { site } from "../site.config";
         updateTitleProgress(p.bytes, p.total, "Sending");
       });
       transfer.emitter.on("sendComplete", (m) => {
+        // Matched release for sendStart acquire.
+        void releaseWakeLock();
         if (activeSendRow) {
           activeSendRow.action.classList.remove("hidden");
           activeSendRow.action.innerHTML = `<span class="text-sm text-[var(--color-success)]">✓ Sent ${formatBytes(m.size)}</span>`;
@@ -1678,6 +1683,8 @@ import { site } from "../site.config";
       });
 
       transfer.emitter.on("receiveStart", (m) => {
+        // Keep screen on for the duration of the receive (refcounted).
+        void acquireWakeLock();
         receiverWait.classList.add("hidden");
         const existing = m.id ? recvRowsById.get(m.id) : undefined;
         if (existing) {
@@ -1695,6 +1702,8 @@ import { site } from "../site.config";
         updateTitleProgress(p.bytes, p.total, "Receiving");
       });
       transfer.emitter.on("receiveComplete", ({ meta, file }) => {
+        // Matched release for receiveStart acquire.
+        void releaseWakeLock();
         playDingComplete();
         vibrate([80, 40, 80]);
         setTabTitle(`✓ Received · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
@@ -1752,7 +1761,12 @@ import { site } from "../site.config";
         maybeShowResetBar();
       });
 
-      transfer.emitter.on("error", (e) => addWarning(e.message));
+      transfer.emitter.on("error", (e) => {
+        // Best-effort release — error may fire mid-transfer, so drop our
+        // wake-lock claim. The refcount can't go below zero by design.
+        void releaseWakeLock();
+        addWarning(e.message);
+      });
     };
 
     // ---------- Pending queue (sender, pre-connection) ----------
