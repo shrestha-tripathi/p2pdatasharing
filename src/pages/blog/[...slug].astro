@@ -1,0 +1,221 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import Nav from "../../components/Nav.astro";
+import Footer from "../../components/Footer.astro";
+import { getCollection, render } from "astro:content";
+import { site } from "../../site.config";
+
+/**
+ * Individual blog post route.
+ *
+ * `getStaticPaths` generates one static page per .md file in
+ * src/content/blog/ at build time — typesafe via the content.config.ts
+ * schema.
+ */
+export async function getStaticPaths() {
+  const posts = await getCollection("blog", ({ data }) => !data.draft);
+  return posts.map((post) => ({
+    params: { slug: post.id },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { Content } = await render(post);
+
+// BlogPosting schema for this specific post — eligible for the "Article"
+// rich result in Google search.
+const postSchema = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "@id": `${site.url}/blog/${post.id}#post`,
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.pubDate.toISOString(),
+  ...(post.data.updatedDate && { dateModified: post.data.updatedDate.toISOString() }),
+  author: { "@type": "Person", name: site.author },
+  publisher: { "@id": `${site.url}/#organization` },
+  mainEntityOfPage: { "@type": "WebPage", "@id": `${site.url}/blog/${post.id}` },
+  keywords: post.data.tags.join(", "),
+};
+
+function formatDate(d: Date): string {
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+}
+---
+
+<Layout
+  title={post.data.title}
+  description={post.data.description}
+  jsonLd={[postSchema]}
+>
+  <Nav />
+
+  <main class="mx-auto max-w-[760px] px-6 md:px-12 py-16 md:py-24">
+    <a
+      href={`${import.meta.env.BASE_URL}blog`}
+      class="text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline inline-flex items-center gap-1.5"
+    >
+      <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      All posts
+    </a>
+
+    <p class="mt-12 text-xs uppercase tracking-wider text-[var(--color-fg-subtle)]">
+      {formatDate(post.data.pubDate)}
+      {post.data.updatedDate && (
+        <> · Updated {formatDate(post.data.updatedDate)}</>
+      )}
+    </p>
+
+    <h1 class="mt-3 text-3xl md:text-5xl font-semibold tracking-tight leading-tight">
+      {post.data.title}
+    </h1>
+
+    {post.data.tags.length > 0 && (
+      <div class="mt-6 flex flex-wrap gap-2">
+        {post.data.tags.map((tag) => (
+          <span class="inline-flex items-center rounded-full bg-[var(--color-bg-subtle)] border border-[var(--color-border)] px-3 py-1 text-xs text-[var(--color-fg-muted)]">
+            {tag}
+          </span>
+        ))}
+      </div>
+    )}
+
+    <hr class="my-10 border-[var(--color-border)]" />
+
+    <article class="prose-body">
+      <Content />
+    </article>
+
+    <hr class="my-16 border-[var(--color-border)]" />
+
+    <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 md:p-8">
+      <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)]">
+        Want to try {site.shortName}?
+      </h2>
+      <p class="mt-3 text-[var(--color-fg-muted)]">
+        Open the app, drop a file, share the link. No signup, no upload, no size limit.
+      </p>
+      <a
+        href={`${import.meta.env.BASE_URL}transfer`}
+        class="mt-6 inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-5 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+      >
+        Send a file now →
+      </a>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>
+
+<style>
+  /* Markdown content styling — minimal, opinionated, matches the rest of
+     the site. Avoids @tailwindcss/typography to keep bundle size down. */
+  .prose-body :global(h2) {
+    font-size: 1.875rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+    color: var(--color-fg);
+    margin-top: 3.25rem;
+    margin-bottom: 1rem;
+  }
+  .prose-body :global(h3) {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--color-fg);
+    margin-top: 2rem;
+    margin-bottom: 0.6rem;
+  }
+  .prose-body :global(p) {
+    color: var(--color-fg-muted);
+    line-height: 1.7;
+    margin-bottom: 1.25rem;
+  }
+  .prose-body :global(ul),
+  .prose-body :global(ol) {
+    color: var(--color-fg-muted);
+    margin-bottom: 1.25rem;
+    padding-left: 1.5rem;
+  }
+  .prose-body :global(ul) { list-style: disc; }
+  .prose-body :global(ol) { list-style: decimal; }
+  .prose-body :global(li) {
+    margin-bottom: 0.5rem;
+    line-height: 1.65;
+  }
+  .prose-body :global(li > p) { margin-bottom: 0.25rem; }
+  .prose-body :global(strong) {
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+  .prose-body :global(em) {
+    color: var(--color-fg);
+    font-style: italic;
+  }
+  .prose-body :global(a) {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .prose-body :global(a:hover) { opacity: 0.85; }
+  .prose-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    color: var(--color-fg);
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .prose-body :global(pre) {
+    background: var(--color-bg-subtle);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    font-size: 0.875rem;
+    line-height: 1.6;
+  }
+  .prose-body :global(pre code) {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-size: 1em;
+    color: var(--color-fg);
+  }
+  .prose-body :global(blockquote) {
+    border-left: 3px solid var(--color-accent);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    color: var(--color-fg-muted);
+    font-style: italic;
+  }
+  .prose-body :global(hr) {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+    margin: 3rem 0;
+  }
+  .prose-body :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5rem 0;
+    font-size: 0.9rem;
+  }
+  .prose-body :global(th),
+  .prose-body :global(td) {
+    border: 1px solid var(--color-border);
+    padding: 0.6rem 0.85rem;
+    text-align: left;
+  }
+  .prose-body :global(th) {
+    background: var(--color-bg-subtle);
+    color: var(--color-fg);
+    font-weight: 600;
+  }
+  .prose-body :global(td) {
+    color: var(--color-fg-muted);
+  }
+</style>
