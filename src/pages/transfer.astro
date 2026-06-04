@@ -211,6 +211,31 @@ import { site } from "../site.config";
         </p>
       </div>
 
+      <!-- Pending queue (sender, before peer joins) -->
+      <section id="pending-queue-section" class="hidden mt-5">
+        <div class="flex items-center justify-between mb-2 gap-3 flex-wrap">
+          <h3 class="text-sm font-semibold">Queued <span id="pq-count" class="text-[var(--color-fg-muted)] font-normal"></span></h3>
+          <button id="pq-clear" type="button" class="text-xs text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]">Clear all</button>
+        </div>
+        <p id="pq-hint" class="text-xs text-[var(--color-fg-subtle)] mb-3">
+          Drag to reorder. Files will be sent in this order once the receiver joins.
+        </p>
+        <ul id="pending-queue" class="space-y-2"></ul>
+        <div id="pq-ready" class="hidden mt-4 rounded-lg border border-[var(--color-accent)] bg-[var(--color-bg-subtle)] p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p class="text-sm font-medium">✓ Receiver joined</p>
+            <p class="text-xs text-[var(--color-fg-muted)] mt-0.5"><span id="pq-ready-count"></span> ready to send.</p>
+          </div>
+          <div class="flex items-center gap-4">
+            <label class="text-xs flex items-center gap-1.5 cursor-pointer select-none">
+              <input id="pq-auto" type="checkbox" class="size-3.5 cursor-pointer" />
+              Auto-send next time
+            </label>
+            <button id="pq-send" type="button" class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Send all</button>
+          </div>
+        </div>
+      </section>
+
       <!-- Receiver waiting -->
       <div id="receiver-wait" class="hidden text-center py-10">
         <div class="inline-block size-6 rounded-full border-2 border-[var(--color-border-strong)] border-t-[var(--color-accent)] animate-spin"></div>
@@ -326,6 +351,15 @@ import { site } from "../site.config";
     const transferPanel = $("transfer-panel");
     const dropZone = $("drop-zone");
     const fileInput = $<HTMLInputElement>("file-input");
+    const pendingQueueSection = $("pending-queue-section");
+    const pendingQueueList = $<HTMLUListElement>("pending-queue");
+    const pqCount = $("pq-count");
+    const pqClear = $<HTMLButtonElement>("pq-clear");
+    const pqReady = $("pq-ready");
+    const pqReadyCount = $("pq-ready-count");
+    const pqSend = $<HTMLButtonElement>("pq-send");
+    const pqAuto = $<HTMLInputElement>("pq-auto");
+    const pqHint = $("pq-hint");
     const receiverWait = $("receiver-wait");
     const fileList = $<HTMLUListElement>("file-list");
     const warnings = $("warnings");
@@ -344,6 +378,7 @@ import { site } from "../site.config";
     let session: TeleportSession | null = null;
     let transfer: FileTransfer | null = null;
     let chat: ChatManager | null = null;
+    let lastSessionState: PeerConnState | "idle" = "idle";
     let lastMessageTs = 0;
 
     // ---------- Helpers ----------
@@ -695,6 +730,7 @@ import { site } from "../site.config";
       });
 
       s.emitter.on("state", (state) => {
+        lastSessionState = state;
         setStatus(state);
         if (state === "connected") {
           transferPanel.classList.remove("hidden");
@@ -712,6 +748,15 @@ import { site } from "../site.config";
           } else {
             receiverWait.classList.add("hidden");
             dropZone.classList.remove("hidden");
+            // Sender: if there's a pre-queued batch, either auto-flush or show "Send all" CTA
+            if (pendingQueue.length > 0) {
+              if (pqAuto.checked) {
+                flushPendingQueue();
+              } else {
+                pqReady.classList.remove("hidden");
+                pqHint.textContent = "Drag to reorder. Tap Send all to start.";
+              }
+            }
           }
         }
         if (state === "failed") {
@@ -810,10 +855,208 @@ import { site } from "../site.config";
       transfer.emitter.on("error", (e) => addWarning(e.message));
     };
 
+    // ---------- Pending queue (sender, pre-connection) ----------
+    type PendingItem = { id: string; file: File; thumbUrl?: string };
+    const pendingQueue: PendingItem[] = [];
+    const PQ_AUTO_KEY = "p2pds:autoSend";
+
+    // Restore "auto-send" preference
+    try {
+      pqAuto.checked = localStorage.getItem(PQ_AUTO_KEY) === "1";
+    } catch {
+      // localStorage may be blocked (private mode) — non-fatal
+    }
+    pqAuto.addEventListener("change", () => {
+      try { localStorage.setItem(PQ_AUTO_KEY, pqAuto.checked ? "1" : "0"); } catch {}
+    });
+
+    const isChannelLive = (): boolean =>
+      !!(transfer && lastSessionState === "connected");
+
+    const revokeThumbs = (items: PendingItem[]) => {
+      for (const it of items) {
+        if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl);
+      }
+    };
+
+    const escHtml = (s: string) =>
+      s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+    const fileIconSvg = (file: File): string => {
+      const t = file.type;
+      const color = "text-[var(--color-fg-muted)]";
+      if (t.startsWith("video/")) {
+        return `<svg class="${color}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4z"/></svg>`;
+      }
+      if (t.startsWith("audio/")) {
+        return `<svg class="${color}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+      }
+      if (t === "application/pdf") {
+        return `<svg class="${color}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+      }
+      return `<svg class="${color}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`;
+    };
+
+    const renderPendingQueue = () => {
+      pendingQueueList.innerHTML = "";
+      if (pendingQueue.length === 0) {
+        pendingQueueSection.classList.add("hidden");
+        pqReady.classList.add("hidden");
+        return;
+      }
+      pendingQueueSection.classList.remove("hidden");
+      const totalBytes = pendingQueue.reduce((a, it) => a + it.file.size, 0);
+      pqCount.textContent = `· ${pendingQueue.length} file${pendingQueue.length === 1 ? "" : "s"} · ${formatBytes(totalBytes)}`;
+      pqReadyCount.textContent = `${pendingQueue.length} file${pendingQueue.length === 1 ? "" : "s"} · ${formatBytes(totalBytes)}`;
+
+      for (const it of pendingQueue) {
+        const li = document.createElement("li");
+        li.draggable = true;
+        li.dataset.id = it.id;
+        li.className = "group flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-2.5 cursor-grab active:cursor-grabbing hover:border-[var(--color-border-strong)] transition-colors";
+
+        const grip = document.createElement("span");
+        grip.className = "text-[var(--color-fg-subtle)] select-none text-base leading-none";
+        grip.textContent = "⋮⋮";
+        li.appendChild(grip);
+
+        const thumb = document.createElement("div");
+        thumb.className = "shrink-0 size-10 rounded-md bg-[var(--color-bg)] border border-[var(--color-border)] overflow-hidden flex items-center justify-center";
+        if (it.thumbUrl) {
+          const img = document.createElement("img");
+          img.src = it.thumbUrl;
+          img.alt = "";
+          img.className = "w-full h-full object-cover";
+          thumb.appendChild(img);
+        } else {
+          thumb.innerHTML = fileIconSvg(it.file);
+        }
+        li.appendChild(thumb);
+
+        const meta = document.createElement("div");
+        meta.className = "min-w-0 flex-1";
+        meta.innerHTML = `
+          <p class="text-sm font-medium truncate">${escHtml(it.file.name)}</p>
+          <p class="text-xs text-[var(--color-fg-muted)]">${formatBytes(it.file.size)}</p>
+        `;
+        li.appendChild(meta);
+
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.setAttribute("aria-label", "Remove from queue");
+        remove.className = "shrink-0 size-7 rounded-md text-[var(--color-fg-subtle)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-fg)] flex items-center justify-center";
+        remove.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+        remove.onclick = (e) => {
+          e.stopPropagation();
+          const idx = pendingQueue.findIndex((x) => x.id === it.id);
+          if (idx >= 0) {
+            const [gone] = pendingQueue.splice(idx, 1);
+            if (gone.thumbUrl) URL.revokeObjectURL(gone.thumbUrl);
+            renderPendingQueue();
+          }
+        };
+        li.appendChild(remove);
+
+        // Drag & drop reorder
+        li.addEventListener("dragstart", (e) => {
+          li.classList.add("opacity-50");
+          e.dataTransfer?.setData("text/plain", it.id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+        });
+        li.addEventListener("dragend", () => li.classList.remove("opacity-50"));
+        li.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        });
+        li.addEventListener("drop", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const draggedId = e.dataTransfer?.getData("text/plain");
+          if (!draggedId || draggedId === it.id) return;
+          const from = pendingQueue.findIndex((x) => x.id === draggedId);
+          const to = pendingQueue.findIndex((x) => x.id === it.id);
+          if (from < 0 || to < 0) return;
+          const [moved] = pendingQueue.splice(from, 1);
+          pendingQueue.splice(to, 0, moved);
+          renderPendingQueue();
+        });
+
+        pendingQueueList.appendChild(li);
+      }
+
+      // Show "Send all" CTA only when channel is live
+      if (isChannelLive()) {
+        pqReady.classList.remove("hidden");
+        pqHint.textContent = "Drag to reorder. Tap Send all to start.";
+      } else {
+        pqReady.classList.add("hidden");
+        pqHint.textContent = "Drag to reorder. Files will be sent in this order once the receiver joins.";
+      }
+    };
+
+    const generateThumb = async (file: File): Promise<string | undefined> => {
+      if (!file.type.startsWith("image/")) return undefined;
+      if (file.size > 25 * 1024 * 1024) return undefined;
+      try {
+        return URL.createObjectURL(file);
+      } catch {
+        return undefined;
+      }
+    };
+
+    const enqueuePending = async (files: FileList) => {
+      const items: PendingItem[] = [];
+      for (const f of Array.from(files)) {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const thumbUrl = await generateThumb(f);
+        items.push({ id, file: f, thumbUrl });
+      }
+      pendingQueue.push(...items);
+      renderPendingQueue();
+    };
+
+    const flushPendingQueue = () => {
+      if (pendingQueue.length === 0 || !transfer) return;
+      const files = pendingQueue.map((it) => it.file);
+      // Build a synthetic FileList via DataTransfer (only reliable cross-browser way)
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(f);
+      // Revoke thumb URLs now — rows are about to switch to the live sending UI
+      revokeThumbs(pendingQueue);
+      pendingQueue.length = 0;
+      renderPendingQueue();
+      transfer.sendMultiple(dt.files).catch((e) => addWarning(e.message));
+    };
+
+    pqClear.onclick = () => {
+      revokeThumbs(pendingQueue);
+      pendingQueue.length = 0;
+      renderPendingQueue();
+    };
+
+    pqSend.onclick = () => {
+      pqReady.classList.add("hidden");
+      flushPendingQueue();
+    };
+
     // ---------- File picker / DnD ----------
     const onPickFiles = (files: FileList | null) => {
-      if (!files || files.length === 0 || !transfer) return;
-      transfer.sendMultiple(files).catch((e) => addWarning(e.message));
+      if (!files || files.length === 0) return;
+      // If channel is live AND user hasn't queued anything yet → send immediately (legacy behavior)
+      if (isChannelLive() && pendingQueue.length === 0) {
+        transfer!.sendMultiple(files).catch((e) => addWarning(e.message));
+        return;
+      }
+      // Otherwise enqueue (covers: pre-connection AND mid-session "queue more")
+      enqueuePending(files).then(() => {
+        // If channel is already live and auto-send preference is on, flush immediately
+        if (isChannelLive() && pqAuto.checked) {
+          flushPendingQueue();
+        } else if (isChannelLive()) {
+          // Channel live but user has stuff queued → show Send all CTA
+          pqReady.classList.remove("hidden");
+        }
+      });
     };
     fileInput.addEventListener("change", () => {
       onPickFiles(fileInput.files);
@@ -1065,6 +1308,7 @@ import { site } from "../site.config";
       session = null;
       transfer = null;
       chat = null;
+      lastSessionState = "idle";
       sendingRows.length = 0;
       receivingRows.length = 0;
       activeSendRow = null;
@@ -1075,9 +1319,22 @@ import { site } from "../site.config";
       senderLink.classList.add("hidden");
       retryPanel.classList.add("hidden");
       paranoidPanel.classList.add("hidden");
+      // Reset pending queue UI (but only if switching role — preserve on paranoid toggle re-boot)
+      // Easiest: just clear it. Re-picking files takes one tap.
+      revokeThumbs(pendingQueue);
+      pendingQueue.length = 0;
+      renderPendingQueue();
       resetChatUI();
       showStatus();
       statusRole.textContent = role === "receiver" ? "Receiver" : "Sender";
+
+      // Sender: show drop zone + transfer panel IMMEDIATELY so files can be queued
+      // before the receiver joins. Receiver doesn't get drop zone.
+      if (role === "sender") {
+        transferPanel.classList.remove("hidden");
+        dropZone.classList.remove("hidden");
+        receiverWait.classList.add("hidden");
+      }
 
       const paranoid = paranoidToggle.checked;
       if (role === "sender") {
