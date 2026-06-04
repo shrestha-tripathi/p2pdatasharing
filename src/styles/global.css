@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Design tokens — source of truth: DESIGN.md
+   ============================================================ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Geist Mono", ui-monospace, SFMono-Regular,
+    Menlo, monospace;
+
+  --color-bg: #ffffff;
+  --color-bg-subtle: #fafafa;
+  --color-bg-muted: #f4f4f5;
+  --color-border: #e5e5e5;
+  --color-border-strong: #d4d4d4;
+  --color-fg: #0a0a0a;
+  --color-fg-muted: #525252;
+  --color-fg-subtle: #737373;
+  --color-accent: #0070f3;
+  --color-success: #0070f3;
+  --color-warning: #f5a623;
+  --color-danger: #ee0000;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-bg: #0a0a0a;
+    --color-bg-subtle: #111111;
+    --color-bg-muted: #1a1a1a;
+    --color-border: #262626;
+    --color-border-strong: #404040;
+    --color-fg: #fafafa;
+    --color-fg-muted: #a3a3a3;
+    --color-fg-subtle: #737373;
+    --color-accent: #3291ff;
+    --color-success: #3291ff;
+    --color-warning: #f7b955;
+    --color-danger: #ff4444;
+  }
+}
+
+/* Base ---------------------------------------------------- */
+html {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  margin: 0;
+  line-height: 1.6;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
