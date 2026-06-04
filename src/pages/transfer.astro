@@ -1418,10 +1418,39 @@ import { site } from "../site.config";
           }
         }
         if (state === "failed") {
-          // Hard failure. If we're the sender AND we haven't already auto-recovered
-          // once this session, transparently rebuild on a fresh room. Most "failed"
-          // states come from a stale ICE candidate set / dead TURN allocation and
-          // a brand-new room+offer fixes them without user intervention.
+          // Hard failure recovery — there are three distinct paths:
+          //
+          //   (1) Paired auto-connect was active → the peer probably just
+          //       refreshed/closed their tab. Don't show error UI; just
+          //       destroy this session, hide the trusted/transfer bits,
+          //       and re-run bootDevicesAuto so we get back to "Waiting
+          //       for your devices..." and reconnect when the peer returns.
+          //   (2) Sender on a random ?r= room, first failure of this session
+          //       → mint a fresh room transparently (existing behavior).
+          //   (3) Anything else → manual retry panel.
+          if (activePair) {
+            const lostPair = activePair;
+            try { session?.destroy(); } catch {}
+            session = null;
+            role = null;
+            activePair = null;
+            // Reset UI bits that only make sense when connected.
+            transferPanel.classList.add("hidden");
+            chatPanel.classList.add("hidden");
+            senderLink.classList.add("hidden");
+            dropZone.classList.add("hidden");
+            receiverWait.classList.add("hidden");
+            const badge = document.getElementById("chat-trusted-badge");
+            if (badge) badge.classList.add("hidden");
+            const discBtn = document.getElementById("manual-disconnect");
+            if (discBtn) discBtn.classList.add("hidden");
+            renderDevices();
+            addWarning(`${lostPair.nickname} disconnected — waiting for it to come back…`);
+            setStatus("signaling", `Lost connection to ${lostPair.nickname}. Will auto-reconnect when it returns.`);
+            // Restart paired auto-connect after a brief settle.
+            setTimeout(() => { bootDevicesAuto(); }, 800);
+            return;
+          }
           if (role === "sender" && !autoReconnectAttempted) {
             autoReconnectAttempted = true;
             senderLink.classList.add("hidden");
