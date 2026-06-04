@@ -218,7 +218,7 @@ import { site } from "../site.config";
           <input id="file-input" type="file" multiple class="hidden" />
         </label>
         <p class="mt-3 text-xs text-[var(--color-fg-subtle)] text-center">
-          You can keep dropping more files after the current one finishes.
+          You can keep dropping more files after the current one finishes. Press <kbd class="px-1 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-bg-subtle)] text-[10px] font-mono">Ctrl/⌘ + V</kbd> to paste screenshots.
         </p>
       </div>
 
@@ -1083,6 +1083,37 @@ import { site } from "../site.config";
       e.preventDefault();
       if (role !== "sender") return; // ignore drops on receiver side
       onPickFiles(e.dataTransfer?.files ?? null);
+    });
+
+    // Paste images from clipboard (sender only). Ctrl+V / Cmd+V with an
+    // image on the clipboard auto-queues it as pasted-image-<ts>.<ext>.
+    document.addEventListener("paste", (e) => {
+      if (role !== "sender") return;
+      // Skip if user is pasting into a text field (chat input, paranoid blobs).
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const picked: File[] = [];
+      for (const item of Array.from(items)) {
+        if (item.kind !== "file") continue;
+        const blob = item.getAsFile();
+        if (!blob) continue;
+        // Rename pasted images (browsers give them generic "image.png" names)
+        // so multiple pastes don't clash.
+        const ext = (blob.type.split("/")[1] || "bin").replace("+xml", "");
+        const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+        const name = blob.type.startsWith("image/")
+          ? `pasted-image-${stamp}.${ext}`
+          : blob.name || `pasted-${stamp}.${ext}`;
+        picked.push(new File([blob], name, { type: blob.type, lastModified: Date.now() }));
+      }
+      if (picked.length === 0) return;
+      e.preventDefault();
+      const dt = new DataTransfer();
+      for (const f of picked) dt.items.add(f);
+      onPickFiles(dt.files);
     });
 
     // ---------- Boot per role ----------
