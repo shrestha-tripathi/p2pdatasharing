@@ -975,7 +975,9 @@ import { site } from "../site.config";
         cell("Has offer", d.peerHasOffer ? "yes" : "no") +
         cell("Local candidates", `${d.candidatesGathered}`) +
         cell("Remote candidates", `${d.candidatesReceived}`) +
-        cell("Cand types", candSummary(d.candidateTypes));
+        cell("Cand types", candSummary(d.candidateTypes)) +
+        cell("Peak throughput", peakRatePerSec > 0 ? formatRate(peakRatePerSec) : "—",
+          peakRatePerSec > 0 ? "var(--color-success)" : "var(--color-fg-muted)");
     };
 
     const addWarning = (msg: string) => {
@@ -1065,6 +1067,11 @@ import { site } from "../site.config";
       };
     };
 
+    /** Highest sustained throughput observed this session, in bytes/sec.
+     *  Updated from every progress tick; surfaced in the diagnostics panel
+     *  so the user can see what their network actually achieved. */
+    let peakRatePerSec = 0;
+
     const updateRow = (row: Row, p: { bytes: number; total: number; ratePerSec: number; etaSec: number }) => {
       const pct = p.total > 0 ? Math.min(100, (p.bytes / p.total) * 100) : 0;
       row.pct.textContent = `${pct.toFixed(1)}%`;
@@ -1072,6 +1079,11 @@ import { site } from "../site.config";
       row.bytes.textContent = `${formatBytes(p.bytes)} / ${formatBytes(p.total)}`;
       row.rate.textContent = formatRate(p.ratePerSec);
       row.eta.textContent = `ETA ${formatEta(p.etaSec)}`;
+      // Track peak — ignore the initial 0s and any wildly-spiking single-tick
+      // values during channel buffering by only counting rates above 1 KB/s.
+      if (p.ratePerSec > peakRatePerSec && p.ratePerSec > 1024) {
+        peakRatePerSec = p.ratePerSec;
+      }
     };
 
     // ---------- File preview ----------
