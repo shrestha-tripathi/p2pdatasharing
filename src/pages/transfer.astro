@@ -291,7 +291,7 @@ import { site } from "../site.config";
         await session.joinAuto(initialRoom);
       } else {
         const room = generateRoomId();
-        const url = `${location.origin}/transfer#${room}`;
+        const url = `${location.origin}${import.meta.env.BASE_URL}transfer#${room}`;
         shareLink.value = url;
         senderLink.classList.remove("hidden");
         await session.hostAuto(room);

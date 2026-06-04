@@ -1,0 +1,53 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # GitHub Pages project site lives at /<repo>/
+      PUBLIC_BASE_PATH: /p2pdatasharing/
+      PUBLIC_SITE_URL: https://shrestha-tripathi.github.io
+      # The signaling server is not deployed yet — auto mode will fail with a
+      # clear error and prompt users to flip on Paranoid mode. Set this to
+      # the real wss:// URL once the server is up.
+      PUBLIC_SIGNALING_URL: wss://signaling.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # SPA-style fallback so deep links like /transfer#room work even when
+      # GitHub Pages tries to serve a missing path. Astro already builds a
+      # 404.html — copy it into place if the static build doesn't.
+      - run: cp dist/404.html dist/404.html.bak 2>/dev/null || true
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

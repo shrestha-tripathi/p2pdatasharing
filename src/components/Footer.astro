@@ -1,6 +1,8 @@
 ---
 import { site } from "../site.config";
 const year = new Date().getFullYear();
+const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+const b = (p: string) => `${base}${p}`;
 ---
 
 <footer class="border-t border-[var(--color-border)] mt-24">
@@ -9,10 +11,10 @@ const year = new Date().getFullYear();
       © {year} {site.name} — files never touch a server.
     </p>
     <div class="flex gap-5 text-sm">
-      <a href="/" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Home</a>
-      <a href="/how-it-works" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">How it works</a>
-      <a href="/privacy" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Privacy</a>
-      <a href="/transfer" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">App</a>
+      <a href={b("/")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Home</a>
+      <a href={b("/how-it-works")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">How it works</a>
+      <a href={b("/privacy")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Privacy</a>
+      <a href={b("/transfer")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">App</a>
     </div>
   </div>
 </footer>

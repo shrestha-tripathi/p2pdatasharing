@@ -6,12 +6,15 @@ const links = [
   { href: "/how-it-works", label: "How it works" },
   { href: "/privacy", label: "Privacy" },
 ];
-const path = Astro.url.pathname.replace(/\/$/, "") || "/";
+const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+const raw = Astro.url.pathname.replace(/\/$/, "") || "/";
+const path = base && raw.startsWith(base) ? (raw.slice(base.length) || "/") : raw;
+const b = (p: string) => `${base}${p}`;
 ---
 
 <header class="border-b border-[var(--color-border)] sticky top-0 z-50 backdrop-blur bg-[color-mix(in_srgb,var(--color-bg)_85%,transparent)]">
   <nav class="mx-auto max-w-[1200px] px-6 md:px-12 h-16 flex items-center justify-between">
-    <a href="/" class="flex items-center gap-2 no-underline">
+    <a href={b("/")} class="flex items-center gap-2 no-underline">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" class="text-[var(--color-fg)]">
         <path d="M3 12h6m6 0h6M9 6l3-3 3 3M9 18l3 3 3-3" />
       </svg>
@@ -20,7 +23,7 @@ const path = Astro.url.pathname.replace(/\/$/, "") || "/";
     <div class="flex items-center gap-1 md:gap-2">
       {links.map((l) => (
         <a
-          href={l.href}
+          href={b(l.href)}
           class:list={[
             "px-3 h-9 hidden sm:inline-flex items-center text-sm rounded-md no-underline transition-colors",
             path === l.href
@@ -30,7 +33,7 @@ const path = Astro.url.pathname.replace(/\/$/, "") || "/";
         >{l.label}</a>
       ))}
       <a
-        href="/transfer"
+        href={b("/transfer")}
         class="inline-flex h-9 items-center rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
       >Open app →</a>
     </div>

@@ -51,13 +51,13 @@ const features = [
         </p>
         <div class="mt-10 flex flex-wrap gap-3">
           <a
-            href="/transfer"
+            href={`${import.meta.env.BASE_URL}transfer`}
             class="inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-6 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
           >
             Launch the teleporter →
           </a>
           <a
-            href="/how-it-works"
+            href={`${import.meta.env.BASE_URL}how-it-works`}
             class="inline-flex h-12 items-center rounded-lg border border-[var(--color-border)] px-6 text-sm font-medium text-[var(--color-fg)] no-underline transition-colors hover:bg-[var(--color-bg-muted)]"
           >
             How it works
@@ -105,7 +105,7 @@ const features = [
             <li><span class="text-[var(--color-fg)] font-medium">2. Share the link.</span> Send it to the recipient any way you like.</li>
             <li><span class="text-[var(--color-fg)] font-medium">3. Drop the file.</span> Direct browser-to-browser stream begins instantly.</li>
           </ol>
-          <a href="/how-it-works" class="mt-8 inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm font-medium text-[var(--color-fg)] no-underline transition-colors hover:bg-[var(--color-bg-muted)]">
+          <a href={`${import.meta.env.BASE_URL}how-it-works`} class="mt-8 inline-flex h-10 items-center rounded-md border border-[var(--color-border)] px-4 text-sm font-medium text-[var(--color-fg)] no-underline transition-colors hover:bg-[var(--color-bg-muted)]">
             Read the technical deep-dive →
           </a>
         </div>
@@ -130,7 +130,7 @@ peerConnection.ondatachannel = (event) => {
           Open {site.shortName}. Drop a file. Share the link. Done in 10 seconds.
         </p>
         <a
-          href="/transfer"
+          href={`${import.meta.env.BASE_URL}transfer`}
           class="mt-10 inline-flex h-12 items-center rounded-lg bg-[var(--color-fg)] px-8 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
         >
           Launch the teleporter →
