@@ -30,8 +30,29 @@ export interface SessionEvents {
 }
 
 const DEFAULT_ICE: RTCIceServer[] = [
+  // STUN — discovers public IP. Works for ~80% of home networks.
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  // TURN — relays when peers can't see each other directly (mobile/CGN,
+  // corporate firewalls, symmetric NAT). These are Open Relay's free
+  // public servers — fine for testing; for production prefer
+  // Cloudflare TURN (free tier 1 TB/mo) or self-host coturn.
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443?transport=tcp",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -250,7 +271,7 @@ export class TeleportSession {
         this.emitter.emit(
           "error",
           new Error(
-            "Could not establish a direct connection within 15s. Likely symmetric NAT. Try a different network or use paranoid mode.",
+            "Could not establish a direct connection within 15s. This usually happens on strict mobile networks (carrier NAT) or corporate firewalls. Try: (a) one peer switch to Wi-Fi, or (b) flip on Paranoid mode and exchange the handshake manually.",
           ),
         );
       }
