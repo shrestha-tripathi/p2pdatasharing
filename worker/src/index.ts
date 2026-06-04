@@ -191,9 +191,22 @@ export class RoomDO implements DurableObject {
     const cleanup = () => {
       this.peers.delete(ws);
       if (this.peers.size === 0) {
-        // Both peers gone — clear any leftover buffered messages so the
-        // next room reuse starts clean.
-        this.pendingForJoiner = [];
+        // Grace period — the lone remaining client probably backgrounded
+        // the tab and the OS killed their socket. Keep their buffered
+        // offer/ICE around for 5 minutes so when they reconnect (or the
+        // actual receiver joins), the handshake still works. Clear
+        // earlier if a fresh peer arrives and gets it.
+        const snapshot = this.pendingForJoiner;
+        setTimeout(
+          () => {
+            // Only clear if NO ONE is in the room AND the buffer hasn't
+            // been replaced by a fresh session.
+            if (this.peers.size === 0 && this.pendingForJoiner === snapshot) {
+              this.pendingForJoiner = [];
+            }
+          },
+          5 * 60 * 1000,
+        );
       }
     };
     ws.addEventListener("close", cleanup);

@@ -71,6 +71,14 @@ export class TeleportSession {
   private dataChannel: RTCDataChannel | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
+  /**
+   * Sender keeps a copy of the offer + all gathered ICE candidates so
+   * we can re-send the handshake on signaling reconnect (mobile tab
+   * background eats the WS, and the DO grace buffer might already
+   * have been wiped on a fresh DO instance).
+   */
+  private cachedOffer: RTCSessionDescriptionInit | null = null;
+  private cachedCandidates: RTCIceCandidateInit[] = [];
 
   constructor(private opts: CreateSessionOptions) {
     this.peer = new RTCPeerConnection({
@@ -124,7 +132,12 @@ export class TeleportSession {
 
     this.peer.onicecandidate = (e) => {
       if (e.candidate) {
-        this.sendSignal({ type: "candidate", payload: e.candidate.toJSON() });
+        const cand = e.candidate.toJSON();
+        // Cache for resend-on-reconnect.
+        if (this.role === "sender") {
+          this.cachedCandidates.push(cand);
+        }
+        this.sendSignal({ type: "candidate", payload: cand });
       }
     };
   }
@@ -151,6 +164,7 @@ export class TeleportSession {
 
     const offer = await this.peer.createOffer();
     await this.peer.setLocalDescription(offer);
+    this.cachedOffer = offer;
     this.sendSignal({ type: "offer", payload: offer });
     // NOTE: no startConnectTimer here — we'll start it in
     // onconnectionstatechange once the receiver actually answers.
@@ -294,6 +308,20 @@ export class TeleportSession {
     await new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
         this.sendSignal({ type: "join", payload: {} });
+        // If we're the sender and we already have an offer cached from a
+        // previous session (this is a reconnect), replay it + all the
+        // ICE candidates so the receiver — whenever they finally join —
+        // gets the handshake regardless of any DO buffer eviction.
+        if (this.role === "sender" && this.cachedOffer) {
+          this.sendSignal({ type: "offer", payload: this.cachedOffer });
+          for (const c of this.cachedCandidates) {
+            this.sendSignal({ type: "candidate", payload: c });
+          }
+          this.emitter.emit(
+            "log",
+            `Replayed handshake on reconnect (offer + ${this.cachedCandidates.length} candidates)`,
+          );
+        }
         resolve();
       };
       setTimeout(() => reject(new Error("Signaling connect timeout")), 8000);
