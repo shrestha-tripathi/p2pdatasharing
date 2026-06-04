@@ -1114,6 +1114,16 @@ import { site } from "../site.config";
       bootRole();
     };
     roleRecvBtn.onclick = () => {
+      // Mark role immediately so paranoid toggle works while the user
+      // is still on the "paste invite link" sub-step.
+      role = "receiver";
+      statusRole.textContent = "Receiver";
+      // If paranoid is already on, jump straight into the paranoid flow.
+      if (paranoidToggle.checked) {
+        rolePicker.classList.add("hidden");
+        bootRole();
+        return;
+      }
       // Reveal the "paste link" input. We don't actually boot until the
       // user clicks Join (or switches to paranoid mode).
       roleReceiveInput.classList.remove("hidden");
@@ -1186,7 +1196,10 @@ import { site } from "../site.config";
     };
 
     paranoidToggle.addEventListener("change", () => {
-      if (role) bootRole();
+      if (role) {
+        rolePicker.classList.add("hidden");
+        bootRole();
+      }
     });
 
     // ---------- Misc ----------
