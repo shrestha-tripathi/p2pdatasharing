@@ -187,7 +187,12 @@ export class TeleportSession {
   // ---------- SIGNALING TRANSPORT ----------
 
   private async openSignaling(roomId: string) {
-    this.ws = new WebSocket(this.opts.signalingUrl);
+    // Append ?room=<id> so Cloudflare Worker can route to the right
+    // Durable Object before upgrading the WebSocket. The Node + ws
+    // reference server ignores query strings, so this works for both.
+    const url = new URL(this.opts.signalingUrl);
+    url.searchParams.set("room", roomId);
+    this.ws = new WebSocket(url.toString());
     this.ws.onmessage = async (e) => {
       let msg: SignalMessage;
       try {
