@@ -58,14 +58,14 @@ const canonical = new URL(Astro.url.pathname, site.url).toString();
     <meta property="og:image" content={new URL(`${import.meta.env.BASE_URL}og-image.png`, site.url).toString()} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Local Teleport — send files browser to browser" />
+    <meta property="og:image:alt" content="WebFileSend — send files across any network, browser to browser" />
     <meta property="og:locale" content={site.locale.replace("-", "_")} />
 
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={fullTitle} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={new URL(`${import.meta.env.BASE_URL}og-image.png`, site.url).toString()} />
-    <meta name="twitter:image:alt" content="Local Teleport — send files browser to browser" />
+    <meta name="twitter:image:alt" content="WebFileSend — send files across any network, browser to browser" />
     {site.twitter && <meta name="twitter:site" content={site.twitter} />}
 
     <meta name="generator" content={Astro.generator} />

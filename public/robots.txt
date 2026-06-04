@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /transfer
 
-Sitemap: https://p2pdatasharing.local/sitemap.xml
+Sitemap: https://webfilesend.com/sitemap.xml

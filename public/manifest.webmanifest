@@ -1,7 +1,7 @@
 {
-  "name": "Local Teleport — P2P File Sharing",
-  "short_name": "Teleport",
-  "description": "Send files browser-to-browser. No uploads, no signup, no size limits.",
+  "name": "WebFileSend — true P2P, any network",
+  "short_name": "WebFileSend",
+  "description": "Send files browser-to-browser across any network — no uploads, no signup, no size limits.",
   "start_url": "/transfer",
   "scope": "/",
   "display": "standalone",

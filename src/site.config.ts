@@ -9,16 +9,16 @@
 const env = import.meta.env;
 
 export const site = {
-  name: env.PUBLIC_SITE_NAME ?? "Local Teleport",
-  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "Local Teleport",
-  domain: env.PUBLIC_SITE_DOMAIN ?? "p2pdatasharing.local",
-  url: env.PUBLIC_SITE_URL ?? "https://p2pdatasharing.local",
+  name: env.PUBLIC_SITE_NAME ?? "WebFileSend",
+  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "WebFileSend",
+  domain: env.PUBLIC_SITE_DOMAIN ?? "webfilesend.com",
+  url: env.PUBLIC_SITE_URL ?? "https://webfilesend.com",
   tagline:
     env.PUBLIC_SITE_TAGLINE ??
-    "Zero-cloud P2P file teleporter — browser to browser, never through a server.",
+    "Send files browser to browser across any network — no upload, no server, no size limit.",
   description:
     env.PUBLIC_SITE_DESCRIPTION ??
-    "Send files of any size directly browser-to-browser with WebRTC. No uploads, no signup, no size limits. End-to-end encrypted by default.",
+    "Truly peer-to-peer file transfer that works across any network, anywhere in the world. Direct browser-to-browser via WebRTC — your files never touch a server. No signup, no install, no size limit. End-to-end encrypted by default.",
   author: env.PUBLIC_SITE_AUTHOR ?? "Shrestha Tripathi",
   locale: env.PUBLIC_SITE_LOCALE ?? "en-US",
   twitter: env.PUBLIC_SITE_TWITTER ?? "",

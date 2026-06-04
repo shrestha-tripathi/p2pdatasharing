@@ -7,44 +7,91 @@ import { site } from "../site.config";
 
 <Layout
   title="Privacy — zero logs, zero storage"
-  description="Privacy guarantees of Local Teleport. WebRTC encryption, what our signaling server logs (nothing persistent), and your file content path (never to us)."
+  description="Privacy guarantees of WebFileSend. True P2P architecture (no file ever touches our servers, even when transferring across networks), WebRTC encryption details, what our signaling server briefly sees (nothing persistent), and your file content path (never to us)."
 >
   <Nav />
 
   <main class="mx-auto max-w-[760px] px-6 md:px-12 py-16 md:py-24">
     <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Privacy</p>
-    <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">Your files. Your machine.</h1>
+    <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">Your files. Your machine. Across any network.</h1>
     <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
-      {site.shortName} is built so that even <em>we</em> can't see your files.
-      That's not a policy commitment — it's an architectural one.
+      {site.shortName} is built so that even <em>we</em> can't see your files —
+      whether you're sending across the room or across the world.
+      That's not a policy commitment. It's an architectural one.
     </p>
 
     <hr class="my-12 border-[var(--color-border)]" />
 
     <section class="space-y-10 text-[var(--color-fg-muted)] leading-relaxed">
       <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">True P2P, not "cloud with extra steps"</h2>
+        <p class="mt-3">
+          Most "file transfer" services upload your file to their cloud, then
+          let the recipient download it. That means your bytes sit on
+          <em>their</em> servers — visible to their staff, their backups,
+          court orders, breach notices, and any future policy change.
+        </p>
+        <p class="mt-3">
+          {site.shortName} works differently. Your file streams
+          <strong class="text-[var(--color-fg)]">directly from your browser to theirs</strong>
+          over a peer-to-peer WebRTC connection — even when you're on different
+          continents on different ISPs. No middleman storage step,
+          ever. <strong class="text-[var(--color-fg)]">Delete the tab → the data is gone.</strong>
+        </p>
+      </div>
+
+      <div>
         <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">Where your file bytes go</h2>
         <p class="mt-3">
           File content is split into 16 KB chunks in your browser, sent over a
           DTLS-encrypted WebRTC data channel, and written to the recipient's
           local disk via the Origin Private File System. <strong class="text-[var(--color-fg)]">No byte
-          of your file enters any server we operate.</strong>
+          of your file enters any server we operate</strong> — not even when
+          your two browsers are continents apart.
         </p>
       </div>
 
       <div>
-        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">What our signaling server sees</h2>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">What our signaling server briefly sees</h2>
         <p class="mt-3">
-          The signaling server (a small Node + WebSocket service) routes only the
-          handshake messages needed to set up the P2P connection — SDP offers,
-          answers, and ICE candidates. These contain network endpoint metadata,
-          not file content. The server holds them in memory just long enough to
-          forward them to the other peer and forgets them when the room is empty.
+          The signaling server (a small Cloudflare Worker + Durable Object) routes
+          only the handshake messages needed to set up the P2P connection — SDP
+          offers, answers, and ICE candidates. These contain network endpoint
+          metadata, not file content. The server holds them in memory just long
+          enough to forward them to the other peer and forgets them when the room
+          is empty.
         </p>
         <ul class="mt-4 list-disc pl-6 space-y-2">
           <li>No persistent storage. No database.</li>
           <li>No analytics on signaling traffic.</li>
           <li>No room IDs retained after the last peer disconnects.</li>
+          <li>Once the P2P connection is established, the signaling server is
+            idle — your transfer would survive even if it crashed.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">STUN and TURN — the discovery helpers</h2>
+        <p class="mt-3">
+          To connect across networks, browsers use public
+          <strong class="text-[var(--color-fg)]">STUN</strong> servers (like
+          <code class="font-mono text-[var(--color-fg)]">stun.l.google.com</code>)
+          to discover their own public IP, and occasionally fall back to a
+          <strong class="text-[var(--color-fg)]">TURN</strong> relay (Cloudflare's
+          free TURN service) when both peers are behind strict NATs.
+        </p>
+        <ul class="mt-4 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">STUN</strong> sees only your
+            public IP — never your files. Standard internet hygiene; every WebRTC
+            app uses it.</li>
+          <li><strong class="text-[var(--color-fg)]">TURN</strong> (only when
+            needed, ~10% of connections) relays
+            <strong class="text-[var(--color-fg)]">DTLS-encrypted ciphertext</strong>
+            — Cloudflare cannot decrypt the stream. The encryption keys are
+            negotiated between the two browsers and never leave them.</li>
+          <li>If you want zero third-party hop at all,
+            <strong class="text-[var(--color-fg)]">paranoid mode</strong> skips
+            STUN, TURN, and our signaling server entirely.</li>
         </ul>
       </div>
 
@@ -54,6 +101,18 @@ import { site } from "../site.config";
           WebRTC data channels are end-to-end encrypted using <strong class="text-[var(--color-fg)]">DTLS 1.2/1.3</strong>
           with keys negotiated by your browsers. The keys never leave the two endpoints.
           There is no decryption step server-side — it's mathematically out of our reach.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">Resume partials on your disk</h2>
+        <p class="mt-3">
+          If a transfer drops mid-flight, the receiver's browser keeps the partial
+          data in the Origin Private File System (OPFS) so it can resume from the
+          last on-disk byte instead of restarting from 0. These partials live
+          <strong class="text-[var(--color-fg)]">only in the recipient's browser
+          storage</strong>, never on a server, and are automatically garbage-collected
+          after 7 days.
         </p>
       </div>
 
@@ -71,10 +130,12 @@ import { site } from "../site.config";
       <div>
         <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">Paranoid mode</h2>
         <p class="mt-3">
-          Don't trust our signaling server? Use the <strong class="text-[var(--color-fg)]">manual SDP exchange</strong>
+          Don't trust our signaling server <em>at all</em>? Use the
+          <strong class="text-[var(--color-fg)]">manual SDP exchange</strong>
           on the transfer page. You paste the offer and answer between peers
           yourself (over Signal, in person, written on paper) and the handshake
-          never touches our infrastructure at all.
+          never touches our infrastructure. <strong class="text-[var(--color-fg)]">Zero servers
+          involved — including ours.</strong>
         </p>
       </div>
 

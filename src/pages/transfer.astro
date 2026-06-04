@@ -222,7 +222,7 @@ import { site } from "../site.config";
       </p>
       <ul id="lobby-sender-list" class="space-y-2"></ul>
       <p id="lobby-sender-empty" class="hidden text-sm text-[var(--color-fg-muted)] italic py-4 text-center">
-        No paired devices online right now. Open Local Teleport on your other device and tap <strong>Receive files</strong>.
+        No paired devices online right now. Open {site.shortName} on your other device and tap <strong>Receive files</strong>.
       </p>
       <div class="mt-4 pt-4 border-t border-[var(--color-border)] text-xs text-[var(--color-fg-subtle)]">
         Or <button id="lobby-sender-switch-link" class="underline hover:text-[var(--color-fg)]">share a one-time link</button> with someone else.
@@ -1069,7 +1069,7 @@ import { site } from "../site.config";
       const pct = total > 0 ? Math.round((bytes / total) * 100) : 0;
       if (pct === lastTitlePct) return;
       lastTitlePct = pct;
-      setTabTitle(`(${pct}%) ${prefix} · ${originalTitle.split(" | ")[1] || "Local Teleport"}`);
+      setTabTitle(`(${pct}%) ${prefix} · ${originalTitle.split(" | ")[1] || site.shortName}`);
     };
 
 
@@ -1669,7 +1669,7 @@ import { site } from "../site.config";
           chatInput.placeholder = "Peer disconnected";
           playFailBuzz();
           vibrate([100, 60, 100]);
-          setTabTitle(`✗ Disconnected · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 5000);
+          setTabTitle(`✗ Disconnected · ${originalTitle.split(" | ")[1] || site.shortName}`, 5000);
         }
         // NOTE: 'disconnected' is transient on mobile networks (ICE
         // renegotiation) — we deliberately do NOT disable chat on it.
@@ -1776,7 +1776,7 @@ import { site } from "../site.config";
         completedSendBytes += m.size;
         playDingComplete();
         vibrate(120);
-        setTabTitle(`✓ Sent · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
+        setTabTitle(`✓ Sent · ${originalTitle.split(" | ")[1] || site.shortName}`, 3000);
         lastTitlePct = -1;
         maybeShowResetBar();
       });
@@ -1807,7 +1807,7 @@ import { site } from "../site.config";
         untrackBackgroundTransfer();
         playDingComplete();
         vibrate([80, 40, 80]);
-        setTabTitle(`✓ Received · ${originalTitle.split(" | ")[1] || "Local Teleport"}`, 3000);
+        setTabTitle(`✓ Received · ${originalTitle.split(" | ")[1] || site.shortName}`, 3000);
         lastTitlePct = -1;
         completedRecvCount += 1;
         completedRecvBytes += meta.size;
