@@ -13,12 +13,26 @@ export const site = {
   shortName: env.PUBLIC_SITE_SHORT_NAME ?? "WebFileSend",
   domain: env.PUBLIC_SITE_DOMAIN ?? "webfilesend.com",
   url: env.PUBLIC_SITE_URL ?? "https://webfilesend.com",
-  tagline:
-    env.PUBLIC_SITE_TAGLINE ??
-    "Send files browser to browser across any network — no upload, no server, no size limit.",
+  /**
+   * Short memorable tagline shown in hero + OG cards.
+   * 3-4 words, positions us as the anti-cloud option.
+   */
+  tagline: env.PUBLIC_SITE_TAGLINE ?? "Files, finally direct.",
+  /**
+   * Meta description — under 160 chars so Google doesn't truncate.
+   * Front-loads the highest-intent keywords: 'send files', 'no upload',
+   * 'peer-to-peer', 'no size limit', 'free'.
+   */
   description:
     env.PUBLIC_SITE_DESCRIPTION ??
-    "Truly peer-to-peer file transfer that works across any network, anywhere in the world. Direct browser-to-browser via WebRTC — your files never touch a server. No signup, no install, no size limit. End-to-end encrypted by default.",
+    "Send files browser-to-browser with no upload, no signup, and no size limit. Free peer-to-peer file transfer over WebRTC, end-to-end encrypted, works across any network.",
+  /**
+   * SEO keywords meta — low ranking weight in 2026 but free signal for
+   * Bing, Yandex, DuckDuckGo. Curated for actual user search intent.
+   */
+  keywords:
+    env.PUBLIC_SITE_KEYWORDS ??
+    "send large files online, peer to peer file transfer, browser file sharing, no upload file transfer, free file transfer, p2p file sharing, webrtc file transfer, send big files without limit, secure file sharing, end to end encrypted file transfer, no signup file transfer, wetransfer alternative, send file directly browser to browser",
   author: env.PUBLIC_SITE_AUTHOR ?? "Shrestha Tripathi",
   locale: env.PUBLIC_SITE_LOCALE ?? "en-US",
   twitter: env.PUBLIC_SITE_TWITTER ?? "",

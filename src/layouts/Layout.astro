@@ -55,6 +55,7 @@ const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
+    <meta name="keywords" content={site.keywords} />
     <meta name="author" content={site.author} />
     {noindex && <meta name="robots" content="noindex, nofollow" />}
     <link rel="canonical" href={canonical} />
