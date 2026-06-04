@@ -7,7 +7,7 @@ tags: ["troubleshooting", "corporate", "webrtc", "firewalls"]
 
 If you've tried to share a file between two laptops on the same corporate WiFi and the transfer mysteriously stalls at "Connecting..." forever — congratulations, you've discovered the dirty secret of enterprise networks. They actively block peer-to-peer connections by design.
 
-This post explains *why* that happens, *what* tools like WebFileSend do to work around it, and *what to try* when even the workarounds fail.
+This post explains *why* that happens, *what* tools like FileTransferNow do to work around it, and *what to try* when even the workarounds fail.
 
 ## The problem: NAT, but worse
 
@@ -24,7 +24,7 @@ If you ever wondered why Slack huddles, Google Meet, and Zoom all sometimes fail
 
 ## What WebRTC does first: STUN
 
-When you open WebFileSend (or any WebRTC app), your browser asks a public STUN server like `stun.l.google.com:19302`: "Hey, what does my public IP and port look like to you?" The STUN server replies with what it sees. Your browser then shares that with the other browser via the signaling channel.
+When you open FileTransferNow (or any WebRTC app), your browser asks a public STUN server like `stun.l.google.com:19302`: "Hey, what does my public IP and port look like to you?" The STUN server replies with what it sees. Your browser then shares that with the other browser via the signaling channel.
 
 On a home network: this works. The address is stable, both browsers can reach each other on it.
 
@@ -41,9 +41,9 @@ Sender browser → TURN relay → Receiver browser
                  (both outbound)
 ```
 
-The TURN server forwards bytes between the two sides. It can't read them (still DTLS-encrypted) but it does see encrypted ciphertext flowing through. WebFileSend uses Cloudflare's free TURN service (`turn.cloudflare.com`), which is fast and globally distributed.
+The TURN server forwards bytes between the two sides. It can't read them (still DTLS-encrypted) but it does see encrypted ciphertext flowing through. FileTransferNow uses Cloudflare's free TURN service (`turn.cloudflare.com`), which is fast and globally distributed.
 
-**TURN rescues maybe 90% of failed corporate connections.** When you see WebFileSend struggle for 5-10 seconds and then suddenly connect, that's TURN kicking in.
+**TURN rescues maybe 90% of failed corporate connections.** When you see FileTransferNow struggle for 5-10 seconds and then suddenly connect, that's TURN kicking in.
 
 ## What if even TURN fails?
 
@@ -80,7 +80,7 @@ A consumer VPN like ProtonVPN, Mullvad, or Tailscale routes traffic out of the c
 
 ### 4. Use paranoid mode (manual SDP exchange)
 
-WebFileSend has a "paranoid mode" where you skip the signaling server entirely. You manually copy/paste the SDP handshake between sender and receiver via Signal, email, or any messaging app you can both use. The browsers still need to be able to connect to each other (or to TURN), so this fixes the *signaling* problem but not the *transport* problem.
+FileTransferNow has a "paranoid mode" where you skip the signaling server entirely. You manually copy/paste the SDP handshake between sender and receiver via Signal, email, or any messaging app you can both use. The browsers still need to be able to connect to each other (or to TURN), so this fixes the *signaling* problem but not the *transport* problem.
 
 This helps when:
 - Your network blocks our signaling WebSocket but allows TURN
@@ -99,4 +99,4 @@ For everyday transfers on home WiFi, mobile data, or normal corporate networks, 
 
 ---
 
-*Want to skip the WebRTC dance entirely? Use [paranoid mode in WebFileSend](/transfer) — exchange the handshake over Signal, no signaling server involved. Or read more about [how WebRTC actually works](/how-it-works) under the hood.*
+*Want to skip the WebRTC dance entirely? Use [paranoid mode in FileTransferNow](/transfer) — exchange the handshake over Signal, no signaling server involved. Or read more about [how WebRTC actually works](/how-it-works) under the hood.*

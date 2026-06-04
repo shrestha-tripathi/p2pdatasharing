@@ -7,7 +7,7 @@ tags: ["webrtc", "p2p", "explainer", "how-it-works"]
 
 If you've ever uploaded a file to WeTransfer or Dropbox just to send it to one specific person, you've probably wondered: *why does it have to go to a server first?* The recipient is right there — why is the file taking a detour through a data center in Virginia?
 
-The honest answer is: it doesn't have to. Modern browsers shipped a protocol called **WebRTC** about a decade ago that lets two web pages talk directly to each other — no server in the middle. It was originally built for video calls (Google Meet, Discord voice, and Whereby all use it), but the same plumbing works for transferring files. That's what WebFileSend does.
+The honest answer is: it doesn't have to. Modern browsers shipped a protocol called **WebRTC** about a decade ago that lets two web pages talk directly to each other — no server in the middle. It was originally built for video calls (Google Meet, Discord voice, and Whereby all use it), but the same plumbing works for transferring files. That's what FileTransferNow does.
 
 This post walks through how it actually works, plain English, no marketing fluff.
 
@@ -30,7 +30,7 @@ But there's a catch — two browsers can't just call each other out of the blue.
 
 ### Step 1: The handshake (the only server moment)
 
-When you open WebFileSend, your browser opens a tiny WebSocket connection to our signaling server. When the recipient opens the same room URL, they do the same. Our server passes a few text messages between them — specifically:
+When you open FileTransferNow, your browser opens a tiny WebSocket connection to our signaling server. When the recipient opens the same room URL, they do the same. Our server passes a few text messages between them — specifically:
 
 - **SDP offers and answers**: technical descriptions of what audio/video/data each side can handle
 - **ICE candidates**: every possible network address each browser could be reached at
@@ -88,7 +88,7 @@ When the transfer completes, OPFS streams the assembled file to the browser's do
 
 ## Why this is actually better than the cloud
 
-| | Cloud upload (WeTransfer, etc.) | Direct P2P (WebFileSend) |
+| | Cloud upload (WeTransfer, etc.) | Direct P2P (FileTransferNow) |
 |---|---|---|
 | File travels | Twice (up, down) | Once (direct) |
 | Server sees the file | Yes | No (signaling only) |
@@ -99,7 +99,7 @@ When the transfer completes, OPFS streams the assembled file to the browser's do
 | Works on same WiFi | Yes (slow round-trip) | Yes, near-LAN speed (data stays on your router) |
 | Cost to operator | Storage + bandwidth | Tiny signaling server |
 
-The last row is why this approach scales: WebFileSend's marginal cost per transfer is essentially zero, because we never touch the file. Which is also why we'll never need to add file size limits, expiring links, or premium tiers.
+The last row is why this approach scales: FileTransferNow's marginal cost per transfer is essentially zero, because we never touch the file. Which is also why we'll never need to add file size limits, expiring links, or premium tiers.
 
 ## When P2P doesn't work
 

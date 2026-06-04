@@ -1,6 +1,6 @@
 {
-  "name": "WebFileSend — true P2P, any network",
-  "short_name": "WebFileSend",
+  "name": "FileTransferNow — true P2P, any network",
+  "short_name": "FileTransferNow",
   "description": "Send files browser-to-browser across any network — no uploads, no signup, no size limits.",
   "start_url": "/transfer",
   "scope": "/",

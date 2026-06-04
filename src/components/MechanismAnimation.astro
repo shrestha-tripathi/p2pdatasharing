@@ -2,7 +2,7 @@
 /**
  * MechanismAnimation.astro
  *
- * Self-contained 3D-ish isometric animation that visualizes WebFileSend's
+ * Self-contained 3D-ish isometric animation that visualizes FileTransferNow's
  * three pillars in sequence:
  *   1. 🌐 Connection (browser ↔ browser across networks, NAT traversal)
  *   2. 🔐 Encryption (DTLS lock-up at both ends)
@@ -16,7 +16,7 @@
  */
 ---
 
-<div class="mechanism-wrap" aria-label="Animation showing how WebFileSend connects two browsers, encrypts the link, and streams files directly between them">
+<div class="mechanism-wrap" aria-label="Animation showing how FileTransferNow connects two browsers, encrypts the link, and streams files directly between them">
   <div class="mechanism-stage" role="img">
     <!-- Sender device -->
     <div class="device sender">
@@ -150,7 +150,7 @@
 
   <!-- Screen-reader fallback summary -->
   <p class="sr-only">
-    WebFileSend establishes a direct WebRTC connection between two browsers on different
+    FileTransferNow establishes a direct WebRTC connection between two browsers on different
     networks. The connection is end-to-end encrypted with DTLS. File chunks then stream
     directly peer-to-peer, never touching the signaling server.
   </p>

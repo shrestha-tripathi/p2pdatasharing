@@ -9,10 +9,10 @@
 const env = import.meta.env;
 
 export const site = {
-  name: env.PUBLIC_SITE_NAME ?? "WebFileSend",
-  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "WebFileSend",
-  domain: env.PUBLIC_SITE_DOMAIN ?? "webfilesend.com",
-  url: env.PUBLIC_SITE_URL ?? "https://webfilesend.com",
+  name: env.PUBLIC_SITE_NAME ?? "FileTransferNow",
+  shortName: env.PUBLIC_SITE_SHORT_NAME ?? "FileTransferNow",
+  domain: env.PUBLIC_SITE_DOMAIN ?? "filetransfernow.com",
+  url: env.PUBLIC_SITE_URL ?? "https://filetransfernow.com",
   /**
    * Short memorable tagline shown in hero + OG cards.
    * 3-4 words, positions us as the anti-cloud option.

@@ -1,6 +1,6 @@
 ---
-title: "WeTransfer vs Wormhole vs WebFileSend: which file transfer tool should you actually use?"
-description: "An honest side-by-side comparison of WeTransfer, Wormhole, Smash, Send Anywhere, and WebFileSend across speed, size limits, encryption, cost, and use case. Pick the right tool for your situation."
+title: "WeTransfer vs Wormhole vs FileTransferNow: which file transfer tool should you actually use?"
+description: "An honest side-by-side comparison of WeTransfer, Wormhole, Smash, Send Anywhere, and FileTransferNow across speed, size limits, encryption, cost, and use case. Pick the right tool for your situation."
 pubDate: 2026-06-04
 tags: ["comparison", "wetransfer", "wormhole", "alternatives"]
 ---
@@ -15,11 +15,11 @@ This post is an honest comparison of the major players, including ours. If you s
 - **Smash** — French alternative to WeTransfer. Free unlimited size *technically*, but throttles speed brutally on large files.
 - **Send Anywhere** — Korean. P2P when both clients online, otherwise falls back to server upload. Has native apps.
 - **Wormhole** — Open-source, ephemeral, end-to-end encrypted. Files temporarily on their servers (max 24h, 10GB free).
-- **WebFileSend** — Browser-only P2P over WebRTC. No upload, no size limit, end-to-end encrypted. Direct browser-to-browser.
+- **FileTransferNow** — Browser-only P2P over WebRTC. No upload, no size limit, end-to-end encrypted. Direct browser-to-browser.
 
 ## Comparison table
 
-| Feature | WeTransfer | Smash | Send Anywhere | Wormhole | WebFileSend |
+| Feature | WeTransfer | Smash | Send Anywhere | Wormhole | FileTransferNow |
 |---|---|---|---|---|---|
 | **File goes through server** | Yes (stores) | Yes (stores) | Sometimes (P2P fallback) | Yes (24h temp) | **No (direct P2P)** |
 | **Size limit (free)** | 2 GB | "Unlimited"* | 50 GB | 10 GB | **None** |
@@ -57,7 +57,7 @@ This post is an honest comparison of the major players, including ours. If you s
 - You like the open-source / zero-knowledge angle
 - The file fits in 10 GB
 
-### Use WebFileSend if:
+### Use FileTransferNow if:
 - The file is bigger than 2 GB and you don't want to pay
 - You want to send to someone *right now* (both online, both with a browser)
 - You're on the same WiFi as the recipient (you'll get near-LAN speeds)
@@ -69,7 +69,7 @@ This post is an honest comparison of the major players, including ours. If you s
 
 Every approach has them. Let me lay ours out:
 
-**WebFileSend's weakness**: both parties have to be online at the same time. If you want to send a file at 3am and have your recipient download it at 9am, we don't work — you'd need WeTransfer or Wormhole. (Workaround: we resume transfers across reconnects, so you can leave the tab open overnight and the file syncs when both are awake.)
+**FileTransferNow's weakness**: both parties have to be online at the same time. If you want to send a file at 3am and have your recipient download it at 9am, we don't work — you'd need WeTransfer or Wormhole. (Workaround: we resume transfers across reconnects, so you can leave the tab open overnight and the file syncs when both are awake.)
 
 **WeTransfer's weakness**: file size cap, 7-day expiry, and your file sits on their servers (which they technically can read). For sensitive files, this is a non-starter.
 
@@ -83,11 +83,11 @@ Every approach has them. Let me lay ours out:
 
 For most people, most of the time, here's the decision tree:
 
-1. **Are both parties online RIGHT NOW?** → **WebFileSend** (fastest, biggest, most private)
+1. **Are both parties online RIGHT NOW?** → **FileTransferNow** (fastest, biggest, most private)
 2. **Recipient downloading later, file under 2GB?** → **WeTransfer** (most familiar to non-techies)
 3. **Recipient downloading later, file 2-10GB?** → **Wormhole** (E2E encrypted, no signup)
 4. **Recipient downloading later, file 10-20GB?** → **Smash** (free tier) or **WeTransfer Pro**
-5. **Transferring between your own devices regularly?** → **WebFileSend with device pairing** (one-tap after first pair)
+5. **Transferring between your own devices regularly?** → **FileTransferNow with device pairing** (one-tap after first pair)
 
 Nobody pays us to say nice things about competitors. I genuinely think WeTransfer is the right call for the "send a 1GB PDF to a non-technical client and they download it tomorrow" use case. They've spent 15 years polishing that exact flow.
 
@@ -95,4 +95,4 @@ But for the cases where the file is big, or both of you are online, or you don't
 
 ---
 
-*Try [WebFileSend](/transfer) for your next big-file transfer. No signup, no upload, no size limit. Or read [how it works under the hood](/how-it-works) if you want to understand why it's faster on your LAN than any cloud tool can possibly be.*
+*Try [FileTransferNow](/transfer) for your next big-file transfer. No signup, no upload, no size limit. Or read [how it works under the hood](/how-it-works) if you want to understand why it's faster on your LAN than any cloud tool can possibly be.*

@@ -7,7 +7,7 @@ import MechanismAnimation from "../components/MechanismAnimation.astro";
 
 <Layout
   title="How browser-to-browser file transfer works"
-  description="Deep technical guide to WebRTC data channels, STUN/TURN NAT traversal, the Origin Private File System (OPFS), and chunked secure UDP streaming used by WebFileSend to move files between browsers on any network without a server."
+  description="Deep technical guide to WebRTC data channels, STUN/TURN NAT traversal, the Origin Private File System (OPFS), and chunked secure UDP streaming used by FileTransferNow to move files between browsers on any network without a server."
 >
   <Nav />
 
@@ -15,7 +15,7 @@ import MechanismAnimation from "../components/MechanismAnimation.astro";
     <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Technical Deep Dive</p>
     <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">How it works</h1>
     <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
-      A complete walkthrough of how WebFileSend moves a file from the sender's disk
+      A complete walkthrough of how FileTransferNow moves a file from the sender's disk
       to the receiver's disk — across home WiFi, mobile data, corporate firewalls,
       or different continents — without a server ever seeing a single byte.
     </p>
@@ -33,7 +33,7 @@ import MechanismAnimation from "../components/MechanismAnimation.astro";
       <h2 class="text-2xl md:text-3xl font-semibold text-[var(--color-fg)] tracking-tight">0. Why this is true P2P (not "AirDrop for the web")</h2>
       <p>
         Tools like AirDrop, LocalSend, and Snapdrop only work between devices on
-        the <em>same local network</em>. WebFileSend uses
+        the <em>same local network</em>. FileTransferNow uses
         <strong class="text-[var(--color-fg)]">WebRTC</strong> — the same technology
         powering Google Meet, Discord voice, and Whereby — so it works between
         <strong class="text-[var(--color-fg)]">any two browsers on the public internet</strong>,

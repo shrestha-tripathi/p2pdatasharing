@@ -2,4 +2,4 @@ User-agent: *
 Allow: /
 Disallow: /transfer
 
-Sitemap: https://webfilesend.com/sitemap.xml
+Sitemap: https://filetransfernow.com/sitemap.xml

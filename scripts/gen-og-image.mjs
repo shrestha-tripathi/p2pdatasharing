@@ -34,7 +34,7 @@ const svg = `
     <g fill="#ffffff">
       <path d="M0 80 L25 0 L50 0 L75 80 L60 80 L55 60 L20 60 L15 80 Z M25 45 L50 45 L37.5 15 Z"/>
     </g>
-    <text x="95" y="55" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="600" fill="#ffffff">Local Teleport</text>
+    <text x="95" y="55" font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="32" font-weight="600" fill="#ffffff">FileTransferNow</text>
   </g>
 
   <!-- Big headline -->
