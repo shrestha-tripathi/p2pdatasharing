@@ -1,12 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Local Teleport — origami paper plane emerging from a spiral portal.
-       Theme-adaptive: dark fill on light backgrounds, white fill on dark. -->
+  <!-- Local Teleport / webfilesend.com — spider-web + origami paper plane.
+       Theme-adaptive: dark fill on light backgrounds, white on dark. -->
   <rect width="512" height="512" rx="112" fill="none"/>
-  <!-- Spiral swirl behind plane -->
-  <path d="M256 256 m-120 0 a120 120 0 1 1 240 0 a90 90 0 1 1 -180 0 a60 60 0 1 1 120 0 a30 30 0 1 1 -60 0"
-        fill="none" stroke="#0a0a0a" stroke-width="10" stroke-linecap="round" opacity="0.35" class="ink"/>
-  <!-- Paper plane centered, angled up-right -->
-  <g class="ink-fill" fill="#0a0a0a">
+  <!-- Spider web: 3 concentric hexagons + 6 radial spokes -->
+  <g fill="none" stroke="#0a0a0a" stroke-linecap="round" stroke-linejoin="round" stroke-width="8" opacity="0.35" class="ink">
+    <polygon points="256,76 412,166 412,346 256,436 100,346 100,166" />
+    <polygon points="256,136 360,196 360,316 256,376 152,316 152,196" />
+    <polygon points="256,196 308,226 308,286 256,316 204,286 204,226" />
+    <line x1="256" y1="256" x2="256" y2="76" />
+    <line x1="256" y1="256" x2="412" y2="166" />
+    <line x1="256" y1="256" x2="412" y2="346" />
+    <line x1="256" y1="256" x2="256" y2="436" />
+    <line x1="256" y1="256" x2="100" y2="346" />
+    <line x1="256" y1="256" x2="100" y2="166" />
+  </g>
+  <!-- Paper plane on top -->
+  <g fill="#0a0a0a" class="ink-fill">
     <path d="M110 350 L430 130 L290 380 L240 300 Z"/>
     <path d="M240 300 L430 130 L290 250 Z" opacity="0.5"/>
   </g>

@@ -16,8 +16,17 @@ const b = (p: string) => `${base}${p}`;
   <nav class="mx-auto max-w-[1200px] px-6 md:px-12 h-16 flex items-center justify-between">
     <a href={b("/")} class="flex items-center gap-2 no-underline">
       <svg width="22" height="22" viewBox="0 0 512 512" fill="none" class="text-[var(--color-fg)]" aria-hidden="true">
-        <path d="M256 256 m-120 0 a120 120 0 1 1 240 0 a90 90 0 1 1 -180 0 a60 60 0 1 1 120 0 a30 30 0 1 1 -60 0"
-              fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" opacity="0.35"/>
+        <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="14" opacity="0.35">
+          <polygon points="256,76 412,166 412,346 256,436 100,346 100,166"/>
+          <polygon points="256,136 360,196 360,316 256,376 152,316 152,196"/>
+          <polygon points="256,196 308,226 308,286 256,316 204,286 204,226"/>
+          <line x1="256" y1="256" x2="256" y2="76"/>
+          <line x1="256" y1="256" x2="412" y2="166"/>
+          <line x1="256" y1="256" x2="412" y2="346"/>
+          <line x1="256" y1="256" x2="256" y2="436"/>
+          <line x1="256" y1="256" x2="100" y2="346"/>
+          <line x1="256" y1="256" x2="100" y2="166"/>
+        </g>
         <path d="M110 350 L430 130 L290 380 L240 300 Z" fill="currentColor"/>
         <path d="M240 300 L430 130 L290 250 Z" fill="currentColor" opacity="0.5"/>
       </svg>
