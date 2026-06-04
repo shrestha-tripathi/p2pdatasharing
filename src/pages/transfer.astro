@@ -556,6 +556,7 @@ import { site } from "../site.config";
       rate: HTMLElement;
       eta: HTMLElement;
       action: HTMLElement;
+      resume: HTMLElement;
       name: string;
     };
     const sendingRows: Row[] = [];
@@ -573,6 +574,7 @@ import { site } from "../site.config";
               ${kind === "send" ? "Sending" : "Receiving"}
             </span>
             <span class="font-medium truncate" data-field="name"></span>
+            <span class="hidden text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-bg-muted)] text-[var(--color-accent)] border border-[var(--color-accent)] uppercase tracking-[0.06em] font-medium shrink-0" data-field="resume"></span>
           </div>
           <span class="text-sm text-[var(--color-fg-muted)] tabular-nums" data-field="pct">0%</span>
         </div>
@@ -597,6 +599,7 @@ import { site } from "../site.config";
         rate: q("rate"),
         eta: q("eta"),
         action: q("action"),
+        resume: q("resume"),
       };
     };
 
@@ -815,9 +818,30 @@ import { site } from "../site.config";
         }
       });
 
+      // Track rows by file id so retries reuse the existing row
+      // instead of stacking duplicates on every reconnect.
+      const sendRowsById = new Map<string, Row>();
+      const recvRowsById = new Map<string, Row>();
+
+      const showResumeBadge = (row: Row, resumedFrom: number, total: number) => {
+        if (resumedFrom > 0) {
+          const pct = total > 0 ? Math.round((resumedFrom / total) * 100) : 0;
+          row.resume.textContent = `Resumed at ${pct}%`;
+          row.resume.classList.remove("hidden");
+        }
+      };
+
       transfer.emitter.on("sendStart", (m) => {
-        activeSendRow = makeRow(m.name, "send");
-        sendingRows.push(activeSendRow);
+        const existing = m.id ? sendRowsById.get(m.id) : undefined;
+        if (existing) {
+          activeSendRow = existing;
+          showResumeBadge(existing, m.resumedFrom ?? 0, m.size);
+        } else {
+          activeSendRow = makeRow(m.name, "send");
+          sendingRows.push(activeSendRow);
+          if (m.id) sendRowsById.set(m.id, activeSendRow);
+          showResumeBadge(activeSendRow, m.resumedFrom ?? 0, m.size);
+        }
       });
       transfer.emitter.on("sendProgress", (p) => {
         if (activeSendRow) updateRow(activeSendRow, p);
@@ -832,8 +856,16 @@ import { site } from "../site.config";
 
       transfer.emitter.on("receiveStart", (m) => {
         receiverWait.classList.add("hidden");
-        activeRecvRow = makeRow(m.name, "recv");
-        receivingRows.push(activeRecvRow);
+        const existing = m.id ? recvRowsById.get(m.id) : undefined;
+        if (existing) {
+          activeRecvRow = existing;
+          showResumeBadge(existing, m.resumedFrom ?? 0, m.size);
+        } else {
+          activeRecvRow = makeRow(m.name, "recv");
+          receivingRows.push(activeRecvRow);
+          if (m.id) recvRowsById.set(m.id, activeRecvRow);
+          showResumeBadge(activeRecvRow, m.resumedFrom ?? 0, m.size);
+        }
       });
       transfer.emitter.on("receiveProgress", (p) => {
         if (activeRecvRow) updateRow(activeRecvRow, p);
