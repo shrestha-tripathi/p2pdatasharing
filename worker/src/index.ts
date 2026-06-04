@@ -20,6 +20,7 @@
 
 export interface Env {
   ROOM: DurableObjectNamespace;
+  LOBBY: DurableObjectNamespace;
   ALLOWED_ORIGIN: string;
   // Cloudflare Realtime TURN credentials — set via:
   //   npx wrangler secret put TURN_TOKEN_ID
@@ -59,6 +60,16 @@ export default {
     // Everything else expects a WebSocket upgrade with ?room=<id>.
     if (request.headers.get("Upgrade") !== "websocket") {
       return new Response("Expected WebSocket upgrade", { status: 426 });
+    }
+
+    // Lobby route: ?lobby=<id> → LobbyDO (N-peer roster + invite relay).
+    if (url.searchParams.has("lobby")) {
+      const lobby = url.searchParams.get("lobby")!;
+      if (!lobby || lobby.length > 128 || !/^[\w-]+$/.test(lobby)) {
+        return new Response("Invalid ?lobby", { status: 400 });
+      }
+      const id = env.LOBBY.idFromName(lobby);
+      return env.LOBBY.get(id).fetch(request);
     }
 
     const room = url.searchParams.get("room");
@@ -245,5 +256,187 @@ export class RoomDO implements DurableObject {
     };
     ws.addEventListener("close", cleanup);
     ws.addEventListener("error", cleanup);
+  }
+}
+
+/**
+ * LobbyDO — N-peer presence + invite-relay Durable Object.
+ *
+ * Unlike RoomDO (capped at 2 peers, dumb message relay), the lobby
+ * maintains a roster of devices currently online for a given pair
+ * (one lobby per pair secret). Devices use it to discover each other
+ * by deviceId+nickname, then exchange invite/invite-ack messages to
+ * negotiate a fresh per-session room for the actual WebRTC handshake.
+ *
+ * Wire protocol
+ * -------------
+ *   Client → server:
+ *     { type: "announce",   payload: { deviceId, nickname, role } }
+ *     { type: "invite",     payload: { toDeviceId, sessionRoomId } }
+ *     { type: "invite-ack", payload: { toDeviceId, sessionRoomId, accepted, reason? } }
+ *     { type: "ping" }
+ *
+ *   Server → client:
+ *     { type: "roster",          payload: [{ deviceId, nickname, role, joinedAt }, ...] }
+ *     { type: "invite-received", payload: { fromDeviceId, fromNickname, sessionRoomId } }
+ *     { type: "invite-ack",      payload: { fromDeviceId, sessionRoomId, accepted, reason? } }
+ *     { type: "pong" }
+ *     { type: "error",           payload: { message } }
+ *
+ * Roles are advisory strings the UI uses for filtering — typically
+ * "available" (idle, ready to receive), "sending", or "receiving".
+ */
+interface LobbyPeer {
+  ws: WebSocket;
+  deviceId: string;
+  nickname: string;
+  role: string;
+  joinedAt: number;
+}
+
+export class LobbyDO implements DurableObject {
+  private peers = new Map<WebSocket, LobbyPeer>();
+
+  async fetch(request: Request): Promise<Response> {
+    const pair = new WebSocketPair();
+    const [client, server] = [pair[0], pair[1]];
+    this.accept(server);
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  private accept(ws: WebSocket) {
+    ws.accept();
+    // No roster entry until the client sends "announce". This keeps
+    // ghost sockets out of the roster.
+
+    ws.addEventListener("message", (event) => {
+      let msg: { type: string; payload?: Record<string, unknown> };
+      try {
+        msg = JSON.parse(typeof event.data === "string" ? event.data : "");
+      } catch {
+        return;
+      }
+      const payload = msg.payload ?? {};
+
+      if (msg.type === "announce") {
+        const deviceId = String(payload.deviceId ?? "");
+        const nickname = String(payload.nickname ?? "").slice(0, 80);
+        const role = String(payload.role ?? "available").slice(0, 20);
+        if (!deviceId || deviceId.length > 64) return;
+
+        // If a different socket already claimed this deviceId, evict it
+        // (single session per device — newer tab wins).
+        for (const [otherWs, p] of this.peers) {
+          if (p.deviceId === deviceId && otherWs !== ws) {
+            try { otherWs.close(1000, "replaced by newer session"); } catch { /* */ }
+            this.peers.delete(otherWs);
+          }
+        }
+
+        const existing = this.peers.get(ws);
+        this.peers.set(ws, {
+          ws,
+          deviceId,
+          nickname,
+          role,
+          joinedAt: existing?.joinedAt ?? Date.now(),
+        });
+        this.broadcastRoster();
+        return;
+      }
+
+      const self = this.peers.get(ws);
+      if (!self) {
+        // Haven't announced yet — every other message requires identity.
+        try {
+          ws.send(JSON.stringify({
+            type: "error",
+            payload: { message: "Must announce before sending other messages" },
+          }));
+        } catch { /* */ }
+        return;
+      }
+
+      if (msg.type === "invite") {
+        const toDeviceId = String(payload.toDeviceId ?? "");
+        const sessionRoomId = String(payload.sessionRoomId ?? "");
+        if (!toDeviceId || !sessionRoomId) return;
+        const target = this.findByDeviceId(toDeviceId);
+        if (!target) {
+          try {
+            ws.send(JSON.stringify({
+              type: "invite-ack",
+              payload: {
+                fromDeviceId: toDeviceId,
+                sessionRoomId,
+                accepted: false,
+                reason: "Target device is offline",
+              },
+            }));
+          } catch { /* */ }
+          return;
+        }
+        try {
+          target.ws.send(JSON.stringify({
+            type: "invite-received",
+            payload: {
+              fromDeviceId: self.deviceId,
+              fromNickname: self.nickname,
+              sessionRoomId,
+            },
+          }));
+        } catch { /* */ }
+      } else if (msg.type === "invite-ack") {
+        const toDeviceId = String(payload.toDeviceId ?? "");
+        const sessionRoomId = String(payload.sessionRoomId ?? "");
+        const accepted = Boolean(payload.accepted);
+        const reason = typeof payload.reason === "string" ? payload.reason : undefined;
+        if (!toDeviceId) return;
+        const target = this.findByDeviceId(toDeviceId);
+        if (!target) return;
+        try {
+          target.ws.send(JSON.stringify({
+            type: "invite-ack",
+            payload: {
+              fromDeviceId: self.deviceId,
+              sessionRoomId,
+              accepted,
+              reason,
+            },
+          }));
+        } catch { /* */ }
+      } else if (msg.type === "ping") {
+        try { ws.send(JSON.stringify({ type: "pong" })); } catch { /* */ }
+      }
+    });
+
+    const cleanup = () => {
+      this.peers.delete(ws);
+      this.broadcastRoster();
+    };
+    ws.addEventListener("close", cleanup);
+    ws.addEventListener("error", cleanup);
+  }
+
+  private findByDeviceId(deviceId: string): LobbyPeer | undefined {
+    for (const p of this.peers.values()) {
+      if (p.deviceId === deviceId) return p;
+    }
+    return undefined;
+  }
+
+  private broadcastRoster() {
+    const roster = Array.from(this.peers.values()).map((p) => ({
+      deviceId: p.deviceId,
+      nickname: p.nickname,
+      role: p.role,
+      joinedAt: p.joinedAt,
+    }));
+    const msg = JSON.stringify({ type: "roster", payload: roster });
+    for (const p of this.peers.values()) {
+      if (p.ws.readyState === WebSocket.READY_STATE_OPEN) {
+        try { p.ws.send(msg); } catch { /* */ }
+      }
+    }
   }
 }

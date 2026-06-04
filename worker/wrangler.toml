@@ -8,12 +8,20 @@ compatibility_flags = ["nodejs_compat"]
 name = "ROOM"
 class_name = "RoomDO"
 
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "LobbyDO"
+
 # Migration: register the DO class so Cloudflare provisions storage.
 # Using new_sqlite_classes so this works on Workers Free plan (the old
 # new_classes form requires a paid Workers plan as of 2024).
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RoomDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["LobbyDO"]
 
 # Allow any browser origin to upgrade WS — adjust for production if you
 # want to lock it down to a specific domain.

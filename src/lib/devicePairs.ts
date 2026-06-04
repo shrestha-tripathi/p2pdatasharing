@@ -241,3 +241,64 @@ export function parsePairFragment(hash: string): { secret: string; nickname: str
   if (cleaned.length < 20 || cleaned.length > 32) return null;
   return { secret: cleaned, nickname: (params.get("name") || "").slice(0, 40) };
 }
+
+// ─── Device identity ───────────────────────────────────────────────
+// Stable per-browser identity for the lobby roster. Generated once
+// on first call and persisted. The nickname is independent of any
+// pair's nickname (which is what *you* called the *other* device);
+// this is what *this* device shows itself as to peers in the lobby.
+
+const DEVICE_ID_KEY = "p2pds:devices:myDeviceId";
+const DEVICE_NICKNAME_KEY = "p2pds:devices:myNickname";
+
+export function getDeviceId(): string {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    id = "dev_" + Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+export function getMyNickname(): string {
+  return localStorage.getItem(DEVICE_NICKNAME_KEY) || guessDefaultNickname();
+}
+
+export function setMyNickname(name: string): void {
+  const trimmed = name.trim().slice(0, 60);
+  if (trimmed) localStorage.setItem(DEVICE_NICKNAME_KEY, trimmed);
+}
+
+function guessDefaultNickname(): string {
+  if (typeof navigator === "undefined") return "My device";
+  const ua = navigator.userAgent;
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/iPad/i.test(ua)) return "iPad";
+  if (/Android/i.test(ua)) return "Android";
+  if (/Mac/i.test(ua)) return "Mac";
+  if (/Windows/i.test(ua)) return "Windows PC";
+  if (/Linux/i.test(ua)) return "Linux";
+  return "My device";
+}
+
+// Derive the lobby room id from the pair secret. Independent namespace
+// from the connection room (different prefix) so they never collide.
+export async function deriveLobbyId(secret: string): Promise<string> {
+  const enc = new TextEncoder();
+  const data = enc.encode("p2pds:device-pair-lobby:v2" + secret);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .slice(0, 6)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+// Generate a fresh random session room id — used as the destination
+// for invite/accept to flow into a clean WebRTC handshake room.
+export function generateSessionRoomId(): string {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
