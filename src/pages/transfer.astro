@@ -193,7 +193,58 @@ import { site } from "../site.config";
           to exchange a manual handshake instead.
         </p>
       </div>
+
     </section>
+    <!-- LOBBY: sender's "pick an online device to send to" view ─────── -->
+    <div id="lobby-sender" class="hidden mt-4 rounded-lg border border-[var(--color-border)] p-5">
+      <div class="flex items-center justify-between mb-1">
+        <h3 class="font-semibold">Online devices</h3>
+        <span class="text-xs text-[var(--color-fg-muted)]">Tap to send</span>
+      </div>
+      <p class="text-sm text-[var(--color-fg-muted)] mb-4">
+        These are your paired devices currently online and ready to receive.
+      </p>
+      <ul id="lobby-sender-list" class="space-y-2"></ul>
+      <p id="lobby-sender-empty" class="hidden text-sm text-[var(--color-fg-muted)] italic py-4 text-center">
+        No paired devices online right now. Open Local Teleport on your other device and tap <strong>Receive files</strong>.
+      </p>
+      <div class="mt-4 pt-4 border-t border-[var(--color-border)] text-xs text-[var(--color-fg-subtle)]">
+        Or <button id="lobby-sender-switch-link" class="underline hover:text-[var(--color-fg)]">share a one-time link</button> with someone else.
+      </div>
+    </div>
+
+    <!-- LOBBY: receiver's "you're online, waiting for invite" view ─── -->
+    <div id="lobby-receiver" class="hidden mt-4 rounded-lg border border-[var(--color-border)] p-5">
+      <div class="flex items-start gap-3">
+        <span class="size-2.5 rounded-full bg-[var(--color-online)] mt-1.5 shrink-0 presence-dot-online"></span>
+        <div class="flex-1 text-sm">
+          <div class="font-semibold">You're online and ready to receive</div>
+          <div class="text-[var(--color-fg-muted)] mt-0.5">
+            Visible to your paired devices as: <strong id="lobby-receiver-nickname" class="text-[var(--color-fg)]">My device</strong>
+            <button id="lobby-receiver-rename" class="ml-2 text-xs text-[var(--color-accent)] underline hover:no-underline">Rename</button>
+          </div>
+        </div>
+      </div>
+      <div id="lobby-receiver-status" class="mt-4 text-sm text-[var(--color-fg-muted)]">
+        Waiting for a sender to invite you…
+      </div>
+      <div class="mt-4">
+        <button id="lobby-receiver-cancel" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Cancel — go offline</button>
+      </div>
+    </div>
+
+    <!-- LOBBY: incoming invite confirm dialog (only when auto-accept OFF) -->
+    <div id="lobby-invite-confirm" class="hidden mt-4 rounded-lg border border-[var(--color-accent)] bg-[var(--color-bg-subtle)] p-5">
+      <h3 class="font-semibold">Incoming connection</h3>
+      <p class="mt-2 text-sm">
+        <strong id="lobby-invite-from">A device</strong> wants to send you files.
+      </p>
+      <div class="mt-4 flex gap-2">
+        <button id="lobby-invite-accept" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Accept</button>
+        <button id="lobby-invite-decline" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Decline</button>
+      </div>
+    </div>
+
     <!-- Status card (hidden until a role is picked) -->
     <div id="status-card" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-6">
       <div class="flex items-center gap-3">
@@ -534,9 +585,11 @@ import { site } from "../site.config";
     import {
       listPairs, upsertPair, removePair, generatePairSecret,
       buildPairUrl, parsePairFragment, getAutoAccept, setAutoAccept,
-      deriveRoomId,
+      deriveRoomId, deriveLobbyId, generateSessionRoomId,
+      getDeviceId, getMyNickname, setMyNickname,
       type Pair,
     } from "../lib/devicePairs";
+    import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
     import { site } from "../site.config";
     import QRCode from "qrcode";
     import { downloadZip } from "client-zip";
@@ -2307,35 +2360,246 @@ import { site } from "../site.config";
      * other picks Receive, both derive the same room from the pair
      * secret, and the handshake completes deterministically.
      */
-    const bootPaired = async (pair: Pair, asRole: "sender" | "receiver") => {
-      const room = await deriveRoomId(pair.secret);
-      session = new TeleportSession({ signalingUrl: site.signalingUrl });
-      role = asRole;
-      wireSession(session);
+    // ─── Lobby-driven paired flow ──────────────────────────────────
+    // Replaces the old bootPaired (which reused a derived-from-secret
+    // room and suffered from glare/stale-state bugs). New model:
+    //   1. Open a WS to the LobbyDO for this pair (announce identity).
+    //   2. Sender sees a roster of online paired devices, picks one,
+    //      sends an `invite` with a freshly-random sessionRoomId.
+    //   3. Receiver gets `invite-received`, auto-accepts (or prompts),
+    //      then both connect to the sessionRoomId via TeleportSession.
+    //   4. Inviter is host, invitee is join — deterministic, no glare.
+    let lobby: DeviceLobby | null = null;
+    let lobbyPair: Pair | null = null;
+    let currentRoster: RosterEntry[] = [];
+    // Tracks outgoing invites so we know which sessionRoomId we're
+    // waiting on an ack for.
+    let pendingInvite: { toDeviceId: string; sessionRoomId: string } | null = null;
 
+    // DOM refs for the lobby UI
+    const lobbySenderPanel = $("lobby-sender");
+    const lobbySenderList = $<HTMLUListElement>("lobby-sender-list");
+    const lobbySenderEmpty = $("lobby-sender-empty");
+    const lobbySenderSwitchLink = $<HTMLButtonElement>("lobby-sender-switch-link");
+    const lobbyReceiverPanel = $("lobby-receiver");
+    const lobbyReceiverNickname = $("lobby-receiver-nickname");
+    const lobbyReceiverRename = $<HTMLButtonElement>("lobby-receiver-rename");
+    const lobbyReceiverStatus = $("lobby-receiver-status");
+    const lobbyReceiverCancel = $<HTMLButtonElement>("lobby-receiver-cancel");
+    const lobbyInviteConfirm = $("lobby-invite-confirm");
+    const lobbyInviteFrom = $("lobby-invite-from");
+    const lobbyInviteAccept = $<HTMLButtonElement>("lobby-invite-accept");
+    const lobbyInviteDecline = $<HTMLButtonElement>("lobby-invite-decline");
+
+    const stopLobby = () => {
+      if (lobby) {
+        try { lobby.stop(); } catch { /* */ }
+        lobby = null;
+      }
+      lobbyPair = null;
+      currentRoster = [];
+      pendingInvite = null;
+    };
+
+    /** Render the sender's list of online devices (excluding ourselves). */
+    const renderLobbySenderList = () => {
+      const myId = getDeviceId();
+      const others = currentRoster.filter((p) => p.deviceId !== myId);
+      lobbySenderList.innerHTML = "";
+      if (others.length === 0) {
+        lobbySenderEmpty.classList.remove("hidden");
+        return;
+      }
+      lobbySenderEmpty.classList.add("hidden");
+      for (const peer of others) {
+        const li = document.createElement("li");
+        li.className = "flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 cursor-pointer transition-colors hover:border-[var(--color-accent)] hover:bg-[var(--color-bg-muted)]";
+        const dot = document.createElement("span");
+        dot.className = "size-2.5 rounded-full shrink-0 bg-[var(--color-online)] presence-dot-online";
+        li.appendChild(dot);
+        const label = document.createElement("div");
+        label.className = "flex-1 min-w-0";
+        const name = document.createElement("div");
+        name.className = "text-sm font-medium truncate";
+        name.textContent = peer.nickname || "Unnamed device";
+        label.appendChild(name);
+        const meta = document.createElement("div");
+        meta.className = "text-xs text-[var(--color-fg-muted)]";
+        meta.textContent = peer.role === "available"
+          ? "Ready to receive"
+          : peer.role === "receiving" ? "Receiving…"
+          : peer.role === "sending" ? "Busy sending" : peer.role;
+        label.appendChild(meta);
+        li.appendChild(label);
+        const arrow = document.createElement("span");
+        arrow.className = "text-[var(--color-fg-muted)] shrink-0";
+        arrow.textContent = "→";
+        li.appendChild(arrow);
+        const busy = peer.role === "sending" || peer.role === "receiving";
+        if (busy) {
+          li.classList.remove("cursor-pointer", "hover:border-[var(--color-accent)]", "hover:bg-[var(--color-bg-muted)]");
+          li.classList.add("opacity-60", "cursor-not-allowed");
+        } else {
+          li.onclick = () => inviteDevice(peer);
+        }
+        lobbySenderList.appendChild(li);
+      }
+    };
+
+    const inviteDevice = async (target: RosterEntry) => {
+      if (!lobby || !lobbyPair) return;
+      const sessionRoomId = generateSessionRoomId();
+      pendingInvite = { toDeviceId: target.deviceId, sessionRoomId };
+      setStatus("signaling", `Inviting ${target.nickname}…`);
+      lobby.invite(target.deviceId, sessionRoomId);
+      // Pre-create the TeleportSession as host on the fresh session room
+      // so the data channel is ready the moment they accept.
+      role = "sender";
+      session = new TeleportSession({ signalingUrl: site.signalingUrl });
+      wireSession(session);
+      activePair = lobbyPair;
+      const badge = document.getElementById("chat-trusted-badge");
+      if (badge) badge.classList.remove("hidden");
       session.emitter.on("state", (state) => {
         if (state === "connected") {
-          activePair = pair;
-          const badge = document.getElementById("chat-trusted-badge");
-          if (badge) badge.classList.remove("hidden");
-          addWarning(`✓ Connected to ${pair.nickname}`);
+          addWarning(`✓ Connected to ${target.nickname}`);
+          if (lobby) lobby.setRole("sending");
           renderDevices();
           const disc = document.getElementById("manual-disconnect");
           if (disc) disc.classList.remove("hidden");
         }
       });
-
-      if (asRole === "sender") {
-        setStatus(
-          "signaling",
-          `Ready to send to ${pair.nickname}. Open ${pair.nickname} and tap "Receive files".`,
-        );
-        await session.hostAuto(room);
-      } else {
-        setStatus("signaling", `Waiting for ${pair.nickname} to start sending…`);
-        await session.joinAuto(room);
+      try {
+        await session.hostAuto(sessionRoomId);
+      } catch (e) {
+        addWarning(`Failed to start session: ${(e as Error).message}`);
       }
     };
+
+    const handleIncomingInvite = (invite: { fromDeviceId: string; fromNickname: string; sessionRoomId: string }) => {
+      const accept = async () => {
+        lobbyInviteConfirm.classList.add("hidden");
+        lobbyReceiverStatus.textContent = `Connecting to ${invite.fromNickname}…`;
+        if (lobby) lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, true);
+        // Join the session room as receiver.
+        role = "receiver";
+        session = new TeleportSession({ signalingUrl: site.signalingUrl });
+        wireSession(session);
+        activePair = lobbyPair;
+        const badge = document.getElementById("chat-trusted-badge");
+        if (badge) badge.classList.remove("hidden");
+        session.emitter.on("state", (state) => {
+          if (state === "connected") {
+            addWarning(`✓ Connected to ${invite.fromNickname}`);
+            if (lobby) lobby.setRole("receiving");
+            renderDevices();
+            const disc = document.getElementById("manual-disconnect");
+            if (disc) disc.classList.remove("hidden");
+          }
+        });
+        try {
+          await session.joinAuto(invite.sessionRoomId);
+        } catch (e) {
+          addWarning(`Connect failed: ${(e as Error).message}`);
+        }
+      };
+      const decline = () => {
+        lobbyInviteConfirm.classList.add("hidden");
+        if (lobby) lobby.respondToInvite(invite.fromDeviceId, invite.sessionRoomId, false, "Declined by user");
+        lobbyReceiverStatus.textContent = "Waiting for a sender to invite you…";
+      };
+
+      if (getAutoAccept()) {
+        accept();
+        return;
+      }
+      // Manual accept — show the confirm dialog.
+      lobbyInviteFrom.textContent = invite.fromNickname;
+      lobbyInviteConfirm.classList.remove("hidden");
+      lobbyInviteAccept.onclick = accept;
+      lobbyInviteDecline.onclick = decline;
+    };
+
+    const bootLobby = async (pair: Pair, asRole: "sender" | "receiver") => {
+      stopLobby();
+      lobbyPair = pair;
+      statusCard.classList.remove("hidden");
+      const lobbyId = await deriveLobbyId(pair.secret);
+      lobby = new DeviceLobby({
+        signalingUrl: site.signalingUrl,
+        lobbyId,
+        deviceId: getDeviceId(),
+        nickname: getMyNickname(),
+        role: asRole === "sender" ? "available" : "available",
+      });
+
+      lobby.on("roster", (peers) => {
+        currentRoster = peers;
+        if (asRole === "sender") renderLobbySenderList();
+      });
+      lobby.on("invite", (invite) => {
+        if (asRole === "receiver") handleIncomingInvite(invite);
+      });
+      lobby.on("inviteAck", (ack) => {
+        if (asRole !== "sender" || !pendingInvite) return;
+        if (ack.sessionRoomId !== pendingInvite.sessionRoomId) return;
+        if (!ack.accepted) {
+          addWarning(`Invite declined: ${ack.reason ?? "no reason given"}`);
+          setStatus("signaling", "Pick another device or try again.");
+          try { session?.destroy(); } catch { /* */ }
+          session = null;
+          pendingInvite = null;
+        }
+      });
+      lobby.on("open", () => {
+        if (asRole === "sender") {
+          setStatus("signaling", "Looking for your online devices…");
+        } else {
+          setStatus("signaling", "You're online. Waiting for an invite…");
+        }
+      });
+      lobby.on("error", (msg) => addWarning(`Lobby: ${msg}`));
+      lobby.start();
+
+      if (asRole === "sender") {
+        lobbySenderPanel.classList.remove("hidden");
+        renderLobbySenderList();
+      } else {
+        lobbyReceiverPanel.classList.remove("hidden");
+        lobbyReceiverNickname.textContent = getMyNickname();
+      }
+    };
+
+    // Wire lobby UI buttons
+    lobbySenderSwitchLink.onclick = () => {
+      stopLobby();
+      lobbySenderPanel.classList.add("hidden");
+      // Switch to stranger/link mode and re-trigger sender flow.
+      connectMode = "stranger";
+      updateConnectModeUI();
+      bootRole();
+    };
+    lobbyReceiverRename.onclick = () => {
+      const newName = prompt("What should this device be called?", getMyNickname());
+      if (newName && newName.trim()) {
+        setMyNickname(newName);
+        lobbyReceiverNickname.textContent = getMyNickname();
+        if (lobby) {
+          // Re-announce with new nickname by recreating role state.
+          lobby.setRole("available"); // forces re-emit no-op
+          // Manual re-announce path: stop+restart with new opts.
+          stopLobby();
+          if (lobbyPair) bootLobby(lobbyPair, "receiver");
+        }
+      }
+    };
+    lobbyReceiverCancel.onclick = () => {
+      stopLobby();
+      lobbyReceiverPanel.classList.add("hidden");
+      rolePicker.classList.remove("hidden");
+      setStatus("idle", "Pick a role to get started.");
+    };
+
 
     /**
      * Race ALL paired devices in parallel — for each pair, spin up a session
@@ -2802,7 +3066,7 @@ import { site } from "../site.config";
       // explicitly switched to "Someone else (link)" mode, and (c) not paranoid.
       const pairs = listPairs();
       if (pairs.length > 0 && connectMode === "paired" && !paranoidToggle.checked) {
-        bootPaired(pairs[0], "sender").catch((e) => {
+        bootLobby(pairs[0], "sender").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);
           rolePicker.classList.remove("hidden");
         });
@@ -2826,7 +3090,7 @@ import { site } from "../site.config";
       const pairs = listPairs();
       if (pairs.length > 0 && connectMode === "paired") {
         rolePicker.classList.add("hidden");
-        bootPaired(pairs[0], "receiver").catch((e) => {
+        bootLobby(pairs[0], "receiver").catch((e) => {
           addWarning(`Pair connect failed: ${(e as Error).message}`);
           rolePicker.classList.remove("hidden");
         });
