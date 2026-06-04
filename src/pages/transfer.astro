@@ -491,6 +491,9 @@ import { site } from "../site.config";
     type Role = "sender" | "receiver";
     let role: Role | null = null;
     let session: TeleportSession | null = null;
+    // One-shot auto-recovery: if a sender's connection fails, rebuild on a fresh
+    // room without bothering the user. Reset on manual retry or successful link.
+    let autoReconnectAttempted = false;
     let transfer: FileTransfer | null = null;
     let chat: ChatManager | null = null;
     let lastSessionState: PeerConnState | "idle" = "idle";
@@ -1214,6 +1217,8 @@ import { site } from "../site.config";
           senderLink.classList.add("hidden");
           retryPanel.classList.add("hidden");
           paranoidPanel.classList.add("hidden");
+          // Successful link — re-arm one-shot auto-recovery for next failure.
+          autoReconnectAttempted = false;
           chatPanel.classList.remove("hidden");
           // Re-enable chat in case it was disabled by a transient disconnect.
           chatInput.disabled = false;
@@ -1237,8 +1242,28 @@ import { site } from "../site.config";
           }
         }
         if (state === "failed") {
-          // Hard failure — show retry, hide the share link so user
-          // doesn't keep sharing a dead room.
+          // Hard failure. If we're the sender AND we haven't already auto-recovered
+          // once this session, transparently rebuild on a fresh room. Most "failed"
+          // states come from a stale ICE candidate set / dead TURN allocation and
+          // a brand-new room+offer fixes them without user intervention.
+          if (role === "sender" && !autoReconnectAttempted) {
+            autoReconnectAttempted = true;
+            senderLink.classList.add("hidden");
+            paranoidPanel.classList.add("hidden");
+            retryPanel.classList.add("hidden");
+            setStatus("connecting", "Connection failed — rebuilding on a fresh room…");
+            // Brief delay so the user sees the message + the session can settle.
+            setTimeout(() => {
+              try { session?.close(); } catch {}
+              // Strip the stale ?r= so bootRole mints a fresh one.
+              const cleanUrl = `${location.origin}${import.meta.env.BASE_URL}transfer`;
+              history.replaceState({}, "", cleanUrl);
+              bootRole();
+            }, 800);
+            return;
+          }
+          // Already auto-recovered once, or we're the receiver — surface the
+          // manual retry UI like before.
           senderLink.classList.add("hidden");
           paranoidPanel.classList.add("hidden");
           retryPanel.classList.remove("hidden");
@@ -2298,6 +2323,7 @@ import { site } from "../site.config";
     retryBtn.onclick = () => {
       // Same role, same mode — just rebuild from scratch with a fresh room.
       retryPanel.classList.add("hidden");
+      autoReconnectAttempted = false;
       bootRole();
     };
     retryParanoidBtn.onclick = () => {
