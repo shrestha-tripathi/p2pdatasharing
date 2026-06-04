@@ -1,0 +1,155 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+/**
+ * FAQ page — every Q&A here doubles as:
+ *   1. A FAQPage schema entry for Google rich results (accordion in SERP)
+ *   2. Long-tail SEO content (each Q is a real search query)
+ *
+ * Maintenance rule: keep questions short + answers under ~110 words. Google
+ * truncates longer FAQ rich results.
+ */
+
+const faqs = [
+  {
+    q: "Is it really free? What's the catch?",
+    a: `Yes — completely free, no ads, no signup, no premium tier. Since files stream directly browser-to-browser, our infrastructure cost is tiny (just a small signaling server for the WebRTC handshake). There is no upload bandwidth to pay for, no storage to maintain. You're not the product.`,
+  },
+  {
+    q: "How big a file can I send?",
+    a: `There is no file size limit. We've successfully tested transfers above 100 GB. The receiver's file streams directly to their local disk using the Origin Private File System (OPFS), so RAM stays flat even mid-100GB transfer. Your real limit is your network speed and free disk space on the receiving device.`,
+  },
+  {
+    q: "Does it work between two different networks (different WiFi, different cities)?",
+    a: `Yes — this is exactly what ${site.shortName} is built for. Unlike AirDrop, LocalSend, or Snapdrop, it uses WebRTC with STUN/TURN NAT traversal, so it works between any two browsers on the public internet. Sender on home WiFi in Mumbai, receiver on coffee-shop WiFi in Berlin? Works. Sender on 5G, receiver behind a corporate firewall? Also works.`,
+  },
+  {
+    q: "Is the file actually encrypted? Can you read it?",
+    a: `Yes, encrypted end-to-end with DTLS 1.3 — the same standard used by Google Meet and Discord. Encryption keys are negotiated directly between the two browsers and never leave them. Even if your data temporarily routes through our TURN relay (for tricky firewalls), the relay only sees encrypted ciphertext. We physically cannot decrypt your stream.`,
+  },
+  {
+    q: "What happens if the connection drops mid-transfer?",
+    a: `${site.shortName} resumes from the exact byte where it left off — not from zero. The receiver's partial file is persisted to disk via OPFS, and the sender re-streams only the missing bytes. We adaptively wait up to 90 seconds for slow networks to reconnect before giving up. Most competitors restart the entire transfer.`,
+  },
+  {
+    q: "Why is my transfer slower than my internet speed?",
+    a: `The speed is bounded by the slower of: sender's upload, receiver's download, or any TURN relay hop. Typical WebRTC throughput is 50-300 Mbit/s on a clean network. Things that slow it down: corporate firewalls forcing TURN relay, busy WiFi, weak signal, browser CPU on weak devices. Fix: use cabled internet on at least one side, or put both devices on the same WiFi (then it's near-LAN speed).`,
+  },
+  {
+    q: "Can I send an entire folder?",
+    a: `Yes — drop a folder onto the upload area and ${site.shortName} will preserve the folder structure on the receiving side. For very large folders, zipping first can sometimes be faster because it avoids per-file handshake overhead, but it's not required.`,
+  },
+  {
+    q: "Do I need to install anything? Does the receiver?",
+    a: `No install on either side — it runs entirely in the browser. You can optionally install it as a Progressive Web App (PWA) on Android, iOS, Windows, or macOS for a one-click app icon, but the full feature set works directly from the browser tab.`,
+  },
+  {
+    q: "What browsers are supported?",
+    a: `Any modern browser with WebRTC: Chrome 80+, Edge 80+, Firefox 78+, Safari 15+, Opera, Brave, Vivaldi, Arc. Mobile browsers on Android and iOS 15+ are also supported. Safari has historically been the weakest for very large files; Chrome and Firefox are best for 10GB+ transfers.`,
+  },
+  {
+    q: "Can I pair devices I use often so I don't need to scan a QR every time?",
+    a: `Yes — ${site.shortName} supports persistent device pairing. After your first QR scan, both devices remember each other (up to 3 paired devices per account, all stored locally — never on a server). Next time you open the app, you can transfer with one click. You can rename your devices and revoke pairings any time.`,
+  },
+];
+
+// FAQPage JSON-LD — Google parses this into a rich accordion in SERPs.
+// Each Q becomes a clickable expand widget on the search results page,
+// which captures more screen real estate + boosts click-through.
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "@id": `${site.url}/faq#faq`,
+  mainEntity: faqs.map((f) => ({
+    "@type": "Question",
+    name: f.q,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: f.a,
+    },
+  })),
+};
+---
+
+<Layout
+  title="FAQ — common questions about peer-to-peer file transfer"
+  description={`Answers to common questions about ${site.shortName}: file size limits, encryption, cross-network transfers, browser support, resume after disconnect, and how peer-to-peer file sharing actually works.`}
+  jsonLd={[faqSchema]}
+>
+  <Nav />
+
+  <main class="mx-auto max-w-[860px] px-6 md:px-12 py-16 md:py-24">
+    <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">FAQ</p>
+    <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">
+      Frequently asked questions
+    </h1>
+    <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
+      Quick answers about how {site.shortName} works, what makes it different from
+      cloud-upload tools like WeTransfer, and how to get the best transfer speed.
+    </p>
+
+    <hr class="my-12 border-[var(--color-border)]" />
+
+    <div class="space-y-4">
+      {faqs.map((f, i) => (
+        <details
+          class="group rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 md:p-6 transition-colors hover:border-[var(--color-border-strong)]"
+          open={i === 0}
+        >
+          <summary class="flex items-start justify-between gap-4 cursor-pointer list-none">
+            <h2 class="text-base md:text-lg font-semibold text-[var(--color-fg)] leading-snug">
+              {f.q}
+            </h2>
+            <svg
+              class="shrink-0 mt-1 size-5 text-[var(--color-fg-muted)] transition-transform group-open:rotate-180"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </summary>
+          <p class="mt-4 text-[var(--color-fg-muted)] leading-relaxed">
+            {f.a}
+          </p>
+        </details>
+      ))}
+    </div>
+
+    <div class="mt-16 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 md:p-8">
+      <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)]">
+        Still stuck?
+      </h2>
+      <p class="mt-3 text-[var(--color-fg-muted)]">
+        Read the full technical deep-dive on
+        <a href={`${import.meta.env.BASE_URL}how-it-works`} class="text-[var(--color-accent)] underline">how {site.shortName} works under the hood</a>,
+        or just open the app — most issues fix themselves with a single retry.
+      </p>
+      <a
+        href={`${import.meta.env.BASE_URL}transfer`}
+        class="mt-6 inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-5 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+      >
+        Send a file now →
+      </a>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>
+
+<style>
+  /* Hide default disclosure marker so our custom chevron is the only indicator */
+  details > summary::-webkit-details-marker {
+    display: none;
+  }
+  details > summary {
+    list-style: none;
+  }
+</style>
