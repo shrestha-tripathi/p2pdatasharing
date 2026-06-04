@@ -1,22 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Theme-adaptive favicon: neutral on light, inverts on dark -->
+  <!-- Local Teleport — origami paper plane emerging from a spiral portal.
+       Theme-adaptive: dark fill on light backgrounds, white fill on dark. -->
+  <rect width="512" height="512" rx="112" fill="none"/>
+  <!-- Spiral swirl behind plane -->
+  <path d="M256 256 m-120 0 a120 120 0 1 1 240 0 a90 90 0 1 1 -180 0 a60 60 0 1 1 120 0 a30 30 0 1 1 -60 0"
+        fill="none" stroke="#0a0a0a" stroke-width="10" stroke-linecap="round" opacity="0.35" class="ink"/>
+  <!-- Paper plane centered, angled up-right -->
+  <g class="ink-fill" fill="#0a0a0a">
+    <path d="M110 350 L430 130 L290 380 L240 300 Z"/>
+    <path d="M240 300 L430 130 L290 250 Z" opacity="0.5"/>
+  </g>
   <style>
-    .ink { fill: #0a0a0a; }
-    .ring { stroke: #0a0a0a; }
     @media (prefers-color-scheme: dark) {
-      .ink { fill: #fafafa; }
-      .ring { stroke: #fafafa; }
+      .ink { stroke: #fafafa; }
+      .ink-fill { fill: #fafafa; }
     }
   </style>
-  <!-- Concentric portal rings behind plane -->
-  <g fill="none" stroke-linecap="round" class="ring">
-    <circle cx="256" cy="256" r="200" stroke-width="6" opacity="0.18"/>
-    <circle cx="256" cy="256" r="150" stroke-width="6" opacity="0.32"/>
-    <circle cx="256" cy="256" r="100" stroke-width="6" opacity="0.5"/>
-  </g>
-  <!-- Origami paper plane, body + folded inner wing -->
-  <g class="ink">
-    <path d="M110 350 L430 130 L290 380 L240 300 Z"/>
-    <path d="M240 300 L430 130 L290 250 Z" opacity="0.55"/>
-  </g>
 </svg>
