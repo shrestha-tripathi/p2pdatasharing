@@ -1521,6 +1521,17 @@ import { site } from "../site.config";
         }
       });
 
+      // Layer 4 — heartbeat stall: peer JS got throttled (backgrounded,
+      // OS suspended, etc.) and stopped responding even though the data
+      // channel still claims open. Show a toast so the user knows why a
+      // transfer froze, and let the reconnect logic take over.
+      s.emitter.on("stalled", ({ silentForMs }) => {
+        const sec = Math.round(silentForMs / 1000);
+        addWarning(
+          `⚠ Peer is unresponsive (no heartbeat for ${sec}s). Reconnecting…`,
+        );
+      });
+
       s.emitter.on("diag", (d) => {
         renderDiag(d);
         updateLiveStatus(d);

@@ -32,8 +32,11 @@ const supported = (): boolean =>
 const requestLock = async (): Promise<void> => {
   if (!supported() || lock) return;
   try {
-    // @ts-expect-error — wakeLock typing varies by TS version
-    const sentinel = (await navigator.wakeLock.request("screen")) as WakeLockSentinel;
+    const sentinel = (await (
+      navigator as Navigator & {
+        wakeLock: { request(type: "screen"): Promise<WakeLockSentinel> };
+      }
+    ).wakeLock.request("screen")) as WakeLockSentinel;
     lock = sentinel;
     sentinel.addEventListener("release", () => {
       // The browser released it (e.g. tab hidden). Clear our ref so the

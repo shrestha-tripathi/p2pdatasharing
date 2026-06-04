@@ -31,6 +31,19 @@ export interface SessionEvents {
   diag: DiagSnapshot;
   /** Worker tells us if we're first ("host") or second ("join") in the room. */
   serverRole: "host" | "join";
+  /**
+   * Heartbeat (layer 4) RTT in ms — fired on every successful pong. Surface
+   * in UI later if useful. RTT > 200ms suggests one side is throttled.
+   */
+  rtt: number;
+  /**
+   * Fired when the heartbeat detects no pong within the deadline, even
+   * though the data channel still claims "open". Indicates a silent stall
+   * — typically a backgrounded peer whose JS got throttled. The session
+   * proactively closes the channel after this fires, so the normal
+   * disconnect/reconnect flow can recover the transfer.
+   */
+  stalled: { silentForMs: number };
 }
 
 export interface DiagSnapshot {
@@ -104,6 +117,16 @@ export class TeleportSession {
    * blobs over a side channel, which can take arbitrarily long.
    */
   private isParanoid = false;
+
+  // ── Heartbeat (layer 4) ──────────────────────────────────────────
+  /** ms between outbound pings while channel open. Tuned for low overhead. */
+  private static readonly HEARTBEAT_INTERVAL_MS = 5_000;
+  /** No pong within this window => declare stalled and force-close channel. */
+  private static readonly HEARTBEAT_DEADLINE_MS = 15_000;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPongAt = 0;
+  /** Set true after we've declared a stall so the next reconnect path runs. */
+  private heartbeatStalled = false;
 
   private emitDiag() {
     const wsState: DiagSnapshot["ws"] = !this.ws
@@ -207,10 +230,112 @@ export class TeleportSession {
     this.dataChannel = ch;
     ch.binaryType = "arraybuffer";
     ch.bufferedAmountLowThreshold = 1 << 20; // 1 MB
-    ch.onopen = () => this.emitter.emit("channelOpen", ch);
-    ch.onmessage = (e) => this.emitter.emit("channelMessage", { data: e.data });
+    ch.onopen = () => {
+      this.startHeartbeat();
+      this.emitter.emit("channelOpen", ch);
+    };
+    ch.onmessage = (e) => {
+      // Intercept heartbeat control frames so they never reach the
+      // application layer (fileTransfer.ts). Anything else passes through.
+      if (typeof e.data === "string" && e.data.length < 96) {
+        const handled = this.tryHandleHeartbeatFrame(e.data);
+        if (handled) return;
+      }
+      this.emitter.emit("channelMessage", { data: e.data });
+    };
     ch.onerror = (e) =>
       this.emitter.emit("error", new Error(`data channel error: ${String(e)}`));
+    ch.onclose = () => this.stopHeartbeat();
+  }
+
+  /**
+   * Handle inbound ping/pong control frames. Returns true if the frame was
+   * consumed (caller should NOT bubble it up to channelMessage).
+   *
+   * Frame format (kept tiny on the wire — runs every 5s per side):
+   *   ping → {"kind":"hb-ping","t": <senderClock>}
+   *   pong → {"kind":"hb-pong","t": <echoedSenderClock>}
+   *
+   * We echo the sender's clock back unchanged so the originating side can
+   * compute RTT without a clock-sync handshake.
+   */
+  private tryHandleHeartbeatFrame(raw: string): boolean {
+    // Cheap guard before JSON.parse — avoids parsing every meta/resume frame.
+    if (raw[0] !== "{" || (raw.indexOf("\"hb-") === -1)) return false;
+    try {
+      const f = JSON.parse(raw) as { kind?: string; t?: number };
+      if (f.kind === "hb-ping") {
+        this.sendControlFrame({ kind: "hb-pong", t: f.t ?? 0 });
+        return true;
+      }
+      if (f.kind === "hb-pong") {
+        this.lastPongAt = Date.now();
+        const rtt = this.lastPongAt - (f.t ?? this.lastPongAt);
+        if (rtt >= 0) this.emitter.emit("rtt", rtt);
+        return true;
+      }
+    } catch {
+      /* malformed — let it bubble (probably not a heartbeat after all) */
+    }
+    return false;
+  }
+
+  /** Send a small JSON control frame on the data channel. Best-effort. */
+  private sendControlFrame(obj: object): void {
+    const ch = this.dataChannel;
+    if (!ch || ch.readyState !== "open") return;
+    try {
+      ch.send(JSON.stringify(obj));
+    } catch {
+      /* channel closed mid-send — heartbeat tick will catch it */
+    }
+  }
+
+  /**
+   * Begin sending heartbeat pings every HEARTBEAT_INTERVAL_MS. Detects a
+   * silent stall (no pong within HEARTBEAT_DEADLINE_MS) and force-closes
+   * the channel so the existing reconnect path can take over.
+   *
+   * Safe to call multiple times — clears any prior timer first.
+   */
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    // Seed timestamps so the first interval doesn't immediately false-alarm.
+    this.lastPongAt = Date.now();
+    this.heartbeatStalled = false;
+    this.heartbeatTimer = setInterval(() => {
+      const ch = this.dataChannel;
+      if (!ch || ch.readyState !== "open") {
+        this.stopHeartbeat();
+        return;
+      }
+      const now = Date.now();
+      const silentForMs = now - this.lastPongAt;
+      if (silentForMs > TeleportSession.HEARTBEAT_DEADLINE_MS) {
+        // Channel still "open" but peer hasn't responded — declare stall.
+        if (!this.heartbeatStalled) {
+          this.heartbeatStalled = true;
+          this.emitter.emit("log",
+            `heartbeat stall (no pong for ${silentForMs}ms) — closing channel to force reconnect`);
+          this.emitter.emit("stalled", { silentForMs });
+          // Force-close: triggers ch.onclose → stopHeartbeat, and
+          // RTCPeerConnection.onconnectionstatechange should fire
+          // "disconnected"/"failed" within a few seconds, kicking the
+          // existing peer-rejoined / restartAsHost reconnect logic.
+          try { ch.close(); } catch { /* noop */ }
+        }
+        return;
+      }
+      // All good — send next ping.
+      this.sendControlFrame({ kind: "hb-ping", t: now });
+    }, TeleportSession.HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   /** Sender path: create room + offer, connect via signaling. */
