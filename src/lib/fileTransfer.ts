@@ -138,6 +138,56 @@ export class FileTransfer {
     session.emitter.on("stalled", () => {
       this.lastStallAt = Date.now();
     });
+    // Best-effort cleanup of stale OPFS partials from previous sessions
+    // (Gap C). Runs once per FileTransfer construction, fire-and-forget
+    // so a slow / failing OPFS doesn't block transfers.
+    void this.garbageCollectOldPartials().catch(() => {
+      /* swallow — never fatal */
+    });
+  }
+
+  /**
+   * Sweep OPFS root for resume partials older than GC_MAX_AGE_MS. Each
+   * receive() with a known meta.id creates an OPFS file named by that UUID;
+   * abandoned transfers leave them behind indefinitely until they exhaust
+   * the per-origin storage quota. This sweep keeps usage bounded.
+   *
+   * Conservative defaults — only deletes files matching the UUID name shape
+   * (so we never touch user data or other OPFS apps' files), and only if
+   * their lastModified timestamp is older than the cutoff.
+   */
+  private async garbageCollectOldPartials(): Promise<void> {
+    if (typeof navigator === "undefined" || !navigator.storage?.getDirectory) return;
+    const GC_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const cutoff = Date.now() - GC_MAX_AGE_MS;
+    let removed = 0;
+    try {
+      const root = await navigator.storage.getDirectory();
+      // FileSystemDirectoryHandle.entries() is the modern async iterator.
+      const rootAny = root as unknown as {
+        entries?: () => AsyncIterableIterator<[string, FileSystemHandle]>;
+      };
+      if (!rootAny.entries) return; // older browser — skip GC
+      for await (const [name, handle] of rootAny.entries()) {
+        if (!UUID_RE.test(name)) continue; // not our partial
+        if (handle.kind !== "file") continue;
+        try {
+          const file = await (handle as FileSystemFileHandle).getFile();
+          if (file.lastModified < cutoff) {
+            await root.removeEntry(name);
+            removed += 1;
+          }
+        } catch {
+          /* per-entry failure — keep sweeping */
+        }
+      }
+      if (removed > 0) {
+        console.info(`[file-transfer] GC removed ${removed} stale OPFS partial(s)`);
+      }
+    } catch {
+      /* OPFS unavailable / permission denied — silent */
+    }
   }
 
   // ---------- SENDER ----------
