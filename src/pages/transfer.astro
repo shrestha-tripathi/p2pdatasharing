@@ -977,7 +977,13 @@ import { site } from "../site.config";
         cell("Remote candidates", `${d.candidatesReceived}`) +
         cell("Cand types", candSummary(d.candidateTypes)) +
         cell("Peak throughput", peakRatePerSec > 0 ? formatRate(peakRatePerSec) : "—",
-          peakRatePerSec > 0 ? "var(--color-success)" : "var(--color-fg-muted)");
+          peakRatePerSec > 0 ? "var(--color-success)" : "var(--color-fg-muted)") +
+        cell("Session ↑ sent",
+          sessionBytesSent > 0 ? formatBytes(sessionBytesSent) : "—",
+          sessionBytesSent > 0 ? "var(--color-fg)" : "var(--color-fg-muted)") +
+        cell("Session ↓ recv",
+          sessionBytesRecv > 0 ? formatBytes(sessionBytesRecv) : "—",
+          sessionBytesRecv > 0 ? "var(--color-fg)" : "var(--color-fg-muted)");
     };
 
     const addWarning = (msg: string) => {
@@ -1071,6 +1077,12 @@ import { site } from "../site.config";
      *  Updated from every progress tick; surfaced in the diagnostics panel
      *  so the user can see what their network actually achieved. */
     let peakRatePerSec = 0;
+    /** Total bytes moved across all completed + in-flight rows this session,
+     *  for both send and receive. Used by the diagnostics "Session total" cell. */
+    let sessionBytesSent = 0;
+    let sessionBytesRecv = 0;
+    /** Per-row last-seen bytes so we can compute deltas without double-counting. */
+    const lastRowBytes = new WeakMap<Row, number>();
 
     const updateRow = (row: Row, p: { bytes: number; total: number; ratePerSec: number; etaSec: number }) => {
       const pct = p.total > 0 ? Math.min(100, (p.bytes / p.total) * 100) : 0;
@@ -1083,6 +1095,16 @@ import { site } from "../site.config";
       // values during channel buffering by only counting rates above 1 KB/s.
       if (p.ratePerSec > peakRatePerSec && p.ratePerSec > 1024) {
         peakRatePerSec = p.ratePerSec;
+      }
+      // Track session totals as monotonic deltas per row.
+      const prev = lastRowBytes.get(row) ?? 0;
+      const delta = Math.max(0, p.bytes - prev);
+      if (delta > 0) {
+        lastRowBytes.set(row, p.bytes);
+        // Sender rows live in sendRowsById; receiver rows in recvRowsById.
+        // Cheaper than a lookup: rely on the row's text label set at creation.
+        if (row.el.textContent?.includes("Sending")) sessionBytesSent += delta;
+        else sessionBytesRecv += delta;
       }
     };
 
