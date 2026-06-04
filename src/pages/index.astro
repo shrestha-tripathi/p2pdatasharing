@@ -59,8 +59,16 @@ const features = [
     body: "Open the page, generate a room, share the link. Receiver opens it, transfer starts. Nothing to download, no account to create — just a URL.",
   },
   {
+    title: "Resume after disconnect",
+    body: "WiFi dropped mid-transfer? Battery died? Tab refreshed? The receiver's partial file is persisted to disk and the sender re-streams only the missing bytes — never restart a 50GB transfer from byte 0 again.",
+  },
+  {
     title: "Paranoid mode",
     body: "Don't trust our signaling server? Use manual SDP exchange — copy/paste the handshake text over Signal, email, or carrier pigeon. Truly zero cloud, even for the handshake.",
+  },
+  {
+    title: "Greener by design",
+    body: "No upload to a server, no storage racks spinning to hold your file 'just in case'. A typical cloud round-trip burns ~5x the energy of a direct P2P hop. Sustainable by accident — because we just skip the cloud entirely.",
   },
 ];
 ---
@@ -161,6 +169,109 @@ const features = [
         </div>
         <div class="mt-12 md:mt-16">
           <MechanismAnimation />
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARISON: Cloud upload vs WebFileSend -->
+    <section class="border-b border-[var(--color-border)]">
+      <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-16 md:py-24">
+        <div class="max-w-2xl">
+          <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">The difference</p>
+          <h2 class="mt-3 text-3xl md:text-5xl font-semibold tracking-tight">
+            WeTransfer, Smash, Dropbox.
+            <span class="text-[var(--color-fg-muted)]">Then us.</span>
+          </h2>
+          <p class="mt-5 text-lg text-[var(--color-fg-muted)] max-w-xl">
+            Cloud tools make your file take a round trip through a server — first
+            upload, then download. {site.shortName} skips the round trip entirely.
+          </p>
+        </div>
+
+        <div class="mt-12 grid gap-px bg-[var(--color-border)] md:grid-cols-2 border border-[var(--color-border)] rounded-lg overflow-hidden">
+          <!-- BEFORE: cloud upload -->
+          <div class="bg-[var(--color-bg)] p-6 md:p-10">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-wider text-[var(--color-fg-subtle)] font-medium">
+              <span class="size-1.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
+              The old way
+            </div>
+            <h3 class="mt-3 text-xl font-semibold">Upload, store, hope it works</h3>
+
+            <svg viewBox="0 0 360 200" class="mt-6 w-full h-auto text-[var(--color-fg-muted)]" aria-hidden="true">
+              <defs>
+                <marker id="arr-old" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+                </marker>
+              </defs>
+              <!-- Sender -->
+              <rect x="10" y="120" width="80" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <text x="50" y="148" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">You</text>
+              <!-- Cloud (huge, dominant) -->
+              <ellipse cx="180" cy="50" rx="56" ry="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <text x="180" y="48" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">Their server</text>
+              <text x="180" y="62" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.6">stores your file</text>
+              <!-- Receiver -->
+              <rect x="270" y="120" width="80" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <text x="310" y="148" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">Recipient</text>
+              <!-- Upload arrow -->
+              <path d="M 60 120 Q 100 80 130 65" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr-old)"/>
+              <text x="80" y="100" font-size="10" fill="currentColor" opacity="0.7">1. upload</text>
+              <!-- Download arrow -->
+              <path d="M 230 65 Q 260 80 300 120" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr-old)"/>
+              <text x="270" y="100" font-size="10" fill="currentColor" opacity="0.7">2. download</text>
+              <text x="180" y="195" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.55">File travels twice. Server sees it. Storage cap. Size limit.</text>
+            </svg>
+
+            <ul class="mt-6 space-y-2 text-sm text-[var(--color-fg-muted)]">
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> File is uploaded to a server (then downloaded again)</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> 2GB / 5GB / 20GB size caps on the free tier</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> Server can read it, scan it, store it, lose it</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-fg-subtle)] mt-0.5">✗</span> Link expires in 3 / 7 / 30 days</li>
+            </ul>
+          </div>
+
+          <!-- AFTER: direct P2P -->
+          <div class="bg-[var(--color-bg)] p-6 md:p-10">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-wider text-[var(--color-accent)] font-medium">
+              <span class="size-1.5 rounded-full bg-[var(--color-accent)]"></span>
+              With {site.shortName}
+            </div>
+            <h3 class="mt-3 text-xl font-semibold">Direct. End of story.</h3>
+
+            <svg viewBox="0 0 360 200" class="mt-6 w-full h-auto" aria-hidden="true">
+              <defs>
+                <marker id="arr-new" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M0,0 L8,4 L0,8 z" fill="var(--color-accent)" />
+                </marker>
+                <linearGradient id="directLine" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.6"/>
+                  <stop offset="50%" stop-color="var(--color-accent)" stop-opacity="1"/>
+                  <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.6"/>
+                </linearGradient>
+              </defs>
+              <!-- Sender -->
+              <rect x="10" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="50" y="148" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">You</text>
+              <!-- Receiver -->
+              <rect x="270" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="310" y="148" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Recipient</text>
+              <!-- Direct line (curve down + straight across) -->
+              <path d="M 90 145 L 270 145" fill="none" stroke="url(#directLine)" stroke-width="3" stroke-linecap="round" marker-end="url(#arr-new)"/>
+              <text x="180" y="135" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Direct, encrypted</text>
+              <!-- Tiny cloud above, faded -->
+              <ellipse cx="180" cy="50" rx="36" ry="16" fill="none" stroke="var(--color-fg-subtle)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+              <text x="180" y="48" text-anchor="middle" font-size="9" fill="var(--color-fg-subtle)" opacity="0.7">handshake only</text>
+              <text x="180" y="60" text-anchor="middle" font-size="8" fill="var(--color-fg-subtle)" opacity="0.7">(no file bytes)</text>
+              <text x="180" y="195" text-anchor="middle" font-size="9.5" fill="var(--color-fg-muted)">One hop. Zero storage. No size limit.</text>
+            </svg>
+
+            <ul class="mt-6 space-y-2 text-sm text-[var(--color-fg-muted)]">
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> File goes straight from your browser to theirs</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> No size limit — 10MB or 100GB, same flow</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> We physically can't see the file (E2E encrypted)</li>
+              <li class="flex items-start gap-2"><span class="text-[var(--color-accent)] mt-0.5">✓</span> Resume after disconnect — no restart from zero</li>
+            </ul>
+          </div>
         </div>
       </div>
     </section>
