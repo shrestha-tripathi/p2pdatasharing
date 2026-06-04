@@ -437,6 +437,7 @@ import { site } from "../site.config";
     import {
       listPairs, upsertPair, removePair, generatePairSecret,
       buildPairUrl, parsePairFragment, getAutoAccept, setAutoAccept,
+      deriveRoomId,
       type Pair,
     } from "../lib/devicePairs";
     import { site } from "../site.config";
@@ -2112,6 +2113,69 @@ import { site } from "../site.config";
       await session.joinAuto(room);
     };
 
+    /**
+     * Race ALL paired devices in parallel — for each pair, spin up a session
+     * on the derived room (host or join depending on pair.iAmHost). The first
+     * one to reach "connected" wins; the rest get destroyed.
+     */
+    let probeSessions: { session: TeleportSession; pair: Pair }[] = [];
+    const bootDevicesAuto = async () => {
+      const pairs = listPairs();
+      if (pairs.length === 0) {
+        rolePicker.classList.remove("hidden");
+        return;
+      }
+      // Show the status card with a "waiting" message + a "Pick role manually"
+      // escape hatch so the user isn't stuck if no paired device comes online.
+      statusCard.classList.remove("hidden");
+      const names = pairs.map((p) => p.nickname).join(", ");
+      setStatus("signaling", `Waiting for your devices to come online: ${names}`);
+
+      // Show "or pick role manually" affordance after a few seconds.
+      const manualEscape = setTimeout(() => {
+        addWarning("No paired device online yet. You can also pick a role manually below.");
+        rolePicker.classList.remove("hidden");
+      }, 6000);
+
+      for (const pair of pairs) {
+        try {
+          const room = await deriveRoomId(pair.secret);
+          const s = new TeleportSession({ signalingUrl: site.signalingUrl });
+          probeSessions.push({ session: s, pair });
+
+          // First session to connect wins; tear down the rest.
+          s.emitter.on("state", (state) => {
+            if (state === "connected" && session !== s) {
+              clearTimeout(manualEscape);
+              rolePicker.classList.add("hidden");
+              session = s;
+              role = pair.iAmHost ? "sender" : "receiver";
+              wireSession(s);
+              // Toast on the chat side as soon as it's wired
+              const nickEl = $("nickname-input") as HTMLInputElement | null;
+              if (nickEl) refreshIdentityLabels();
+              addWarning(`✓ Auto-connected to ${pair.nickname}`);
+              // Destroy other probes
+              for (const other of probeSessions) {
+                if (other.session !== s) {
+                  try { other.session.destroy(); } catch {}
+                }
+              }
+              probeSessions = [{ session: s, pair }];
+            }
+          });
+
+          if (pair.iAmHost) {
+            await s.hostAuto(room);
+          } else {
+            await s.joinAuto(room);
+          }
+        } catch (e) {
+          addWarning(`Pair "${pair.nickname}" probe failed: ${(e as Error).message}`);
+        }
+      }
+    };
+
     const resetParanoidUI = () => {
       psSender.classList.add("hidden");
       psRecv.classList.add("hidden");
@@ -2385,7 +2449,7 @@ import { site } from "../site.config";
       // means auto-host will start looking for it immediately.
       if (pendingPairSecret) {
         const myName = (localStorage.getItem("p2pds:name") || "").trim();
-        upsertPair(pendingPairSecret, myName ? `${myName}'s other device` : "Other device");
+        upsertPair(pendingPairSecret, myName ? `${myName}'s other device` : "Other device", true);
       }
       pendingPairSecret = "";
       devicesAddPanel.classList.add("hidden");
@@ -2404,7 +2468,7 @@ import { site } from "../site.config";
       pairIncomingName.value = "";
       pairIncomingAccept.onclick = () => {
         const label = pairIncomingName.value.trim() || incomingPair.nickname || "Other device";
-        upsertPair(incomingPair.secret, label);
+        upsertPair(incomingPair.secret, label, false);
         pairIncoming.classList.add("hidden");
         renderDevices();
       };
@@ -2445,6 +2509,10 @@ import { site } from "../site.config";
       // Auto-detect: someone gave us an invite link → we're the receiver.
       role = "receiver";
       bootRole();
+    } else if (listPairs().length > 0 && !incomingPair) {
+      // Paired-device auto-connect: race all known pairs in parallel and
+      // hand control to the first one whose peer comes online.
+      bootDevicesAuto();
     } else {
       rolePicker.classList.remove("hidden");
     }

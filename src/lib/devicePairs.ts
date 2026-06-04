@@ -29,6 +29,14 @@ export interface Pair {
   nickname: string;
   /** ms since epoch */
   addedAt: number;
+  /**
+   * True if THIS device originated the pair (i.e. hit "Add device" and
+   * generated the secret). False if this device accepted via a pair link.
+   * The originator always hosts on the derived room; the acceptor joins.
+   * This avoids glare (two devices both creating offers) without needing
+   * any signaling-server changes.
+   */
+  iAmHost: boolean;
 }
 
 // ---------- Crypto primitives ----------
@@ -115,7 +123,14 @@ function readPairs(): Pair[] {
         typeof p.secret === "string" &&
         typeof p.nickname === "string" &&
         typeof p.addedAt === "number",
-    );
+    ).map((p): Pair => ({
+      secret: p.secret,
+      nickname: p.nickname,
+      addedAt: p.addedAt,
+      // Back-compat: pairs saved before phase 3 had no role flag.
+      // Assume host (the originator was the most common first-mover).
+      iAmHost: typeof (p as Pair).iAmHost === "boolean" ? (p as Pair).iAmHost : true,
+    }));
   } catch {
     return [];
   }
@@ -137,17 +152,18 @@ export function listPairs(): Pair[] {
  * Add or replace a pair with the given secret. If the secret already exists
  * we update the nickname (most-recent-wins) but keep the original addedAt.
  */
-export function upsertPair(secret: string, nickname: string): Pair {
+export function upsertPair(secret: string, nickname: string, iAmHost: boolean): Pair {
   const cleanedSecret = secret.toUpperCase().replace(/[^A-Z2-7]/g, "");
   const cleanedName = nickname.trim().slice(0, 40) || "Unnamed device";
   const pairs = readPairs();
   const existing = pairs.find((p) => p.secret === cleanedSecret);
   if (existing) {
     existing.nickname = cleanedName;
+    // Don't override role on re-pair — first write wins.
     writePairs(pairs);
     return existing;
   }
-  const fresh: Pair = { secret: cleanedSecret, nickname: cleanedName, addedAt: Date.now() };
+  const fresh: Pair = { secret: cleanedSecret, nickname: cleanedName, addedAt: Date.now(), iAmHost };
   pairs.push(fresh);
   writePairs(pairs);
   return fresh;
