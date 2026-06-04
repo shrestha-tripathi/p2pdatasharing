@@ -30,30 +30,30 @@ export interface SessionEvents {
 }
 
 const DEFAULT_ICE: RTCIceServer[] = [
-  // STUN — discovers public IP. Works for ~80% of home networks.
+  // STUN — discovers public IP. Handles ~80% of home/Wi-Fi networks.
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  // TURN — relays when peers can't see each other directly (mobile/CGN,
-  // corporate firewalls, symmetric NAT). These are Open Relay's free
-  // public servers — fine for testing; for production prefer
-  // Cloudflare TURN (free tier 1 TB/mo) or self-host coturn.
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443?transport=tcp",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
 ];
+
+/**
+ * Fetch short-lived TURN credentials from our Worker (which proxies to
+ * Cloudflare's free TURN service). Returns null on failure so we still
+ * try STUN-only — useful when the Worker's TURN binding isn't set up.
+ */
+async function fetchTurnCreds(signalingUrl: string): Promise<RTCIceServer[] | null> {
+  try {
+    const httpUrl = signalingUrl.replace(/^ws/, "http");
+    const u = new URL("/turn", httpUrl);
+    const res = await fetch(u.toString(), { method: "GET" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { iceServers?: RTCIceServer | RTCIceServer[] };
+    if (!data.iceServers) return null;
+    return Array.isArray(data.iceServers) ? data.iceServers : [data.iceServers];
+  } catch {
+    return null;
+  }
+}
 
 const CONNECT_TIMEOUT_MS = 15_000;
 
@@ -77,6 +77,25 @@ export class TeleportSession {
       iceServers: opts.iceServers ?? DEFAULT_ICE,
     });
     this.wireUpPeer();
+
+    // Asynchronously try to fetch Cloudflare TURN creds from our Worker.
+    // If successful, add them to the peer connection BEFORE ICE gathering
+    // matters (setLocalDescription kicks off gathering, so this race only
+    // hurts if the user hits send within ~500ms of page load).
+    if (!opts.iceServers) {
+      fetchTurnCreds(opts.signalingUrl).then((extra) => {
+        if (!extra) return;
+        const current = this.peer.getConfiguration();
+        const merged = [...(current.iceServers ?? []), ...extra];
+        try {
+          this.peer.setConfiguration({ ...current, iceServers: merged });
+          this.emitter.emit("log", `TURN credentials loaded (${extra.length} servers)`);
+        } catch {
+          /* setConfiguration after gathering started is a no-op on some
+             browsers — fine, STUN will still work for non-NAT cases. */
+        }
+      });
+    }
   }
 
   private wireUpPeer() {
