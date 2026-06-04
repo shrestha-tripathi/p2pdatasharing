@@ -265,7 +265,31 @@ export class TeleportSession {
       }
     };
     this.ws.onerror = () =>
-      this.emitter.emit("error", new Error("Signaling WebSocket error"));
+      this.emitter.emit("log", "Signaling WebSocket error");
+
+    // Auto-reconnect if the WS closes while we're still waiting for the
+    // peer (common when mobile backgrounds the tab — iOS/Android suspend
+    // sockets aggressively). We DON'T reconnect once the peer is
+    // connected because at that point signaling is no longer needed.
+    this.ws.onclose = () => {
+      if (
+        this.destroyed ||
+        this.peer.connectionState === "connected" ||
+        this.peer.connectionState === "closed"
+      ) {
+        return;
+      }
+      // Only auto-reconnect when the document is visible — no point
+      // reconnecting in the background just to be killed again.
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        // Will be reconnected by the visibilitychange listener below.
+        return;
+      }
+      this.emitter.emit("log", "Signaling WS closed unexpectedly — reconnecting");
+      this.openSignaling(roomId).catch((err) => {
+        this.emitter.emit("error", new Error(`Signaling reconnect failed: ${String(err)}`));
+      });
+    };
 
     await new Promise<void>((resolve, reject) => {
       this.ws!.onopen = () => {
@@ -273,6 +297,26 @@ export class TeleportSession {
         resolve();
       };
       setTimeout(() => reject(new Error("Signaling connect timeout")), 8000);
+    });
+  }
+
+  /**
+   * Manually nudge the session back to life — used when the page
+   * regains visibility after being backgrounded. Reopens the signaling
+   * WebSocket if it died and we're still waiting for a peer.
+   */
+  resumeIfStale() {
+    if (this.destroyed || !this.roomId) return;
+    if (
+      this.peer.connectionState === "connected" ||
+      this.peer.connectionState === "closed"
+    ) {
+      return;
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    this.emitter.emit("log", "Resuming session after foreground");
+    this.openSignaling(this.roomId).catch((err) => {
+      this.emitter.emit("error", new Error(`Resume failed: ${String(err)}`));
     });
   }
 

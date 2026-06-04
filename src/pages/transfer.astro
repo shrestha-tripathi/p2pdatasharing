@@ -476,7 +476,15 @@ import { site } from "../site.config";
 
       s.emitter.on("error", (e) => {
         addWarning(e.message);
-        setStatus("failed", e.message);
+        // Show the retry UI on ANY error during signaling (not just
+        // hard ICE failures). Hides the share link so user doesn't
+        // keep sending out a dead URL.
+        if (statusLabel.textContent !== "Connected — peer linked") {
+          senderLink.classList.add("hidden");
+          paranoidPanel.classList.add("hidden");
+          retryPanel.classList.remove("hidden");
+          setStatus("failed", e.message);
+        }
       });
 
       transfer.emitter.on("sendStart", (m) => {
@@ -938,7 +946,11 @@ import { site } from "../site.config";
     });
 
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "hidden" && activeSendRow) {
+      if (document.visibilityState === "visible") {
+        // Page came back from background — wake the signaling socket
+        // if it got killed by iOS/Android while we were away.
+        session?.resumeIfStale();
+      } else if (activeSendRow) {
         addWarning("Tab moved to background — transfer may slow until you return.");
       }
     });
