@@ -32,10 +32,12 @@ const b = (p: string) => `${base}${p}`;
           ]}
         >{l.label}</a>
       ))}
-      <a
-        href={b("/transfer")}
-        class="inline-flex h-9 items-center rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
-      >Open app →</a>
+      {path !== "/transfer" && (
+        <a
+          href={b("/transfer")}
+          class="inline-flex h-9 items-center rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+        >Open app →</a>
+      )}
     </div>
   </nav>
 </header>
