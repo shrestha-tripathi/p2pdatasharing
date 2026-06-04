@@ -15,7 +15,7 @@ import { site } from "../site.config";
     <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
       <div>
         <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Workspace</p>
-        <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport files</h1>
+        <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Transfer files now</h1>
       </div>
       <div class="flex items-center gap-5 flex-wrap">
         <label class="inline-flex items-center gap-2 text-sm">
@@ -3727,13 +3727,13 @@ import { site } from "../site.config";
       recvShareAnswer.classList.remove("hidden");
     }
     shareLinkBtn.addEventListener("click", () =>
-      tryShare(shareLinkBtn, { title: "Teleport invite", text: "Join my secure file transfer:", url: shareLink.value }, shareLink.value, "Share")
+      tryShare(shareLinkBtn, { title: "FileTransferNow invite", text: "Join my secure file transfer:", url: shareLink.value }, shareLink.value, "Share")
     );
     senderShareOffer.addEventListener("click", () =>
-      tryShare(senderShareOffer, { title: "Teleport invite code", text: senderOfferBlob.value }, senderOfferBlob.value, "Share")
+      tryShare(senderShareOffer, { title: "FileTransferNow invite code", text: senderOfferBlob.value }, senderOfferBlob.value, "Share")
     );
     recvShareAnswer.addEventListener("click", () =>
-      tryShare(recvShareAnswer, { title: "Teleport reply code", text: recvAnswerBlob.value }, recvAnswerBlob.value, "Share")
+      tryShare(recvShareAnswer, { title: "FileTransferNow reply code", text: recvAnswerBlob.value }, recvAnswerBlob.value, "Share")
     );
     copyLinkBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(shareLink.value);
