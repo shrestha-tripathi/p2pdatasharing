@@ -1035,6 +1035,13 @@ import { site } from "../site.config";
             return wrap(`<p class="p-4 text-xs text-[var(--color-fg-subtle)] text-center">Text file too large to preview (${formatBytes(meta.size)}) — save and open instead.</p>`);
           }
           return wrap(`
+            <div class="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg-subtle)]">
+              <span class="text-[10px] uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Text preview</span>
+              <button data-pv="copy-text" class="h-7 rounded-md border border-[var(--color-border)] px-2.5 text-xs font-medium hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-1.5">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                <span data-pv="copy-text-label">Copy</span>
+              </button>
+            </div>
             <pre data-pv="text" class="m-0 p-3 text-xs font-mono leading-relaxed max-h-80 overflow-auto whitespace-pre-wrap break-words text-[var(--color-fg)]">Loading…</pre>
           `);
 
@@ -1081,8 +1088,12 @@ import { site } from "../site.config";
         };
       } else if (kind === "text") {
         const pre = pv.querySelector('[data-pv="text"]') as HTMLPreElement;
+        const copyBtn = pv.querySelector('[data-pv="copy-text"]') as HTMLButtonElement | null;
+        const copyLabel = pv.querySelector('[data-pv="copy-text-label"]') as HTMLElement | null;
+        let fullText = "";
         file.text()
           .then((text) => {
+            fullText = text;
             // Cap rendered length so a 1MB JSON doesn't lock the UI.
             const MAX_RENDER = 50_000;
             pre.textContent = text.length > MAX_RENDER
@@ -1092,6 +1103,20 @@ import { site } from "../site.config";
           .catch((e) => {
             pre.textContent = `(Could not read text: ${(e as Error).message})`;
           });
+        if (copyBtn && copyLabel) {
+          copyBtn.addEventListener("click", async () => {
+            if (!fullText) return;
+            try {
+              await navigator.clipboard.writeText(fullText);
+              copyLabel.textContent = `✓ Copied (${formatBytes(new Blob([fullText]).size)})`;
+              setTimeout(() => { copyLabel.textContent = "Copy"; }, 2000);
+            } catch (err) {
+              copyLabel.textContent = "Failed";
+              addWarning(`Copy failed: ${(err as Error).message}`);
+              setTimeout(() => { copyLabel.textContent = "Copy"; }, 2000);
+            }
+          });
+        }
       }
     };
 
