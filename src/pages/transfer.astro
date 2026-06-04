@@ -1811,6 +1811,14 @@ import { site } from "../site.config";
         untrackBackgroundTransfer();
         addWarning(e.message);
       });
+
+      // Layer 3 — resume handshake didn't come back in time (slow TURN /
+      // mid-renegotiation). Sender will fall back to restart-from-0.
+      transfer.emitter.on("resumeTimeout", () => {
+        addWarning(
+          "⚠ Resume handshake timed out — restarting transfer from the beginning. This may take longer.",
+        );
+      });
     };
 
     // ---------- Pending queue (sender, pre-connection) ----------

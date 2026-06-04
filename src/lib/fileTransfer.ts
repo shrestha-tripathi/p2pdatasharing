@@ -54,10 +54,41 @@ export interface TransferEvents {
   receiveProgress: TransferProgress;
   receiveComplete: { meta: FileMeta; file: File };
   error: Error;
+  /**
+   * Fired when the receiver doesn't respond to our resume handshake within
+   * the deadline (typically because the channel is unreliable mid-reconnect).
+   * Sender falls back to restart-from-0; UI may want to warn.
+   */
+  resumeTimeout: { id: string };
 }
 
 const CHUNK_SIZE = 16 * 1024; // 16 KB — friendly RTCDataChannel default
-const RESUME_ANSWER_TIMEOUT_MS = 5_000;
+
+/**
+ * Resume-handshake timeout. Bumped from 5s → 12s because freshly-reconnected
+ * TURN-relayed links can take 2-4s just to warm up the path. The previous
+ * 5s window false-fired on exactly the slow networks where resume matters
+ * most, regressing the user back to a from-byte-0 restart.
+ */
+const RESUME_ANSWER_TIMEOUT_MS = 12_000;
+
+/**
+ * `awaitChannelOpen` baseline timeout for retries — covers the common case
+ * of a transient blip where the channel snaps back in seconds.
+ */
+const RECONNECT_TIMEOUT_NORMAL_MS = 30_000;
+
+/**
+ * Bumped reconnect timeout used when we recently saw a heartbeat stall
+ * (layer 4) or a peer-connection failure. Those scenarios trigger a full
+ * SDP renegotiation through the worker which routinely takes 45-90s on
+ * mobile / TURN-relayed paths. Giving up at 30s threw away the recovery
+ * window. 90s aligns with the worst-case observed reconnects in the wild.
+ */
+const RECONNECT_TIMEOUT_AFTER_STALL_MS = 90_000;
+
+/** "Recently" window for considering a stall when picking the reconnect timeout. */
+const STALL_RECENCY_WINDOW_MS = 60_000;
 
 /** Crypto-quality UUID for file IDs. Falls back to Math.random for ancient browsers. */
 function makeId(): string {
@@ -87,6 +118,13 @@ export class FileTransfer {
    */
   private rxQueue: Promise<void> = Promise.resolve();
 
+  /**
+   * Timestamp of the most recent heartbeat stall (layer 4) — used to
+   * adaptively widen the reconnect timeout when we know the channel just
+   * suffered a hard stall (those routinely take 45-90s to renegotiate).
+   */
+  private lastStallAt = 0;
+
   constructor(private session: TeleportSession) {
     session.emitter.on("channelMessage", (m) => {
       this.rxQueue = this.rxQueue
@@ -94,6 +132,11 @@ export class FileTransfer {
         .catch((err) => {
           this.emitter.emit("error", err as Error);
         });
+    });
+    // Track heartbeat stalls so the retry loop knows to wait longer for
+    // the SDP renegotiation to finish.
+    session.emitter.on("stalled", () => {
+      this.lastStallAt = Date.now();
     });
   }
 
@@ -118,10 +161,14 @@ export class FileTransfer {
         return;
       } catch (e) {
         lastErr = e;
+        // Gap D — explicit cleanup of the resume-handshake resolver so the
+        // map doesn't bloat across retries (the timeout would catch it
+        // eventually, but only after RESUME_ANSWER_TIMEOUT_MS extra ms).
+        if (meta.id) this.pendingResumes.delete(meta.id);
         // If channel is definitely closed, wait for re-open (or timeout) and retry.
         const ch = this.session.channel;
         if (!ch || ch.readyState !== "open") {
-          const ok = await this.awaitChannelOpen(30_000);
+          const ok = await this.awaitChannelOpen(this.computeReconnectTimeout());
           if (!ok) break; // gave up — bubble error
           continue;
         }
@@ -130,6 +177,21 @@ export class FileTransfer {
       }
     }
     this.emitter.emit("error", lastErr as Error);
+  }
+
+  /**
+   * Pick how long to wait for the channel to come back. If we just saw a
+   * heartbeat stall (or are still inside the recency window), give the
+   * full renegotiation 90s instead of the default 30s — observed mobile/TURN
+   * reconnects routinely take 45-90s and we were giving up before they
+   * finished. See Layer 3 spec, Gap A.
+   */
+  private computeReconnectTimeout(): number {
+    const sinceStall = Date.now() - this.lastStallAt;
+    if (this.lastStallAt > 0 && sinceStall < STALL_RECENCY_WINDOW_MS) {
+      return RECONNECT_TIMEOUT_AFTER_STALL_MS;
+    }
+    return RECONNECT_TIMEOUT_NORMAL_MS;
   }
 
   /** Wait until the data channel is open again, or `timeoutMs` elapses. */
@@ -275,19 +337,21 @@ export class FileTransfer {
   /**
    * Sender helper: wait for the receiver to tell us how many bytes it
    * already has under this file's id. Resolves with the offset; falls
-   * back to 0 on timeout (legacy receiver — restart from scratch).
+   * back to 0 on timeout (legacy receiver — restart from scratch) and
+   * emits a `resumeTimeout` event so the UI can warn.
    */
   private awaitResumeAnswer(id: string): Promise<number> {
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (offset: number) => {
+      const finish = (offset: number, timedOut: boolean) => {
         if (settled) return;
         settled = true;
         this.pendingResumes.delete(id);
+        if (timedOut) this.emitter.emit("resumeTimeout", { id });
         resolve(offset);
       };
-      this.pendingResumes.set(id, finish);
-      setTimeout(() => finish(0), RESUME_ANSWER_TIMEOUT_MS);
+      this.pendingResumes.set(id, (offset) => finish(offset, false));
+      setTimeout(() => finish(0, true), RESUME_ANSWER_TIMEOUT_MS);
     });
   }
 
@@ -388,9 +452,18 @@ export class FileTransfer {
       try {
         this.rxFileHandle = await root.getFileHandle(opfsName, { create: false });
         const existing = await this.rxFileHandle.getFile();
-        if (existing.size > 0 && existing.size < meta.size) {
+        if (existing.size > meta.size) {
+          // Gap F — UUID collision or sender re-rolled with different content
+          // for the same id. The partial cannot be trusted; wipe and restart.
+          try {
+            await root.removeEntry(opfsName);
+          } catch {
+            /* if remove fails, fall through — we'll overwrite from 0 below */
+          }
+          this.rxFileHandle = await root.getFileHandle(opfsName, { create: true });
+        } else if (existing.size > 0 && existing.size < meta.size) {
           resumedFrom = existing.size;
-        } else if (existing.size >= meta.size) {
+        } else if (existing.size === meta.size) {
           // Already complete locally — accept and reply with full offset.
           // (Sender will skip ahead to size, then we'll emit complete from
           // the next zero-byte write cycle… actually we need to emit now.)
@@ -400,6 +473,7 @@ export class FileTransfer {
           this.rxFileHandle = null;
           return;
         }
+        // existing.size === 0 → fall through and start fresh write
       } catch {
         // No existing partial — create fresh
         this.rxFileHandle = await root.getFileHandle(opfsName, { create: true });
