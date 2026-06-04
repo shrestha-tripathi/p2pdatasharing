@@ -51,9 +51,30 @@ import { site } from "../site.config";
           </button>
         </div>
       </div>
+      <!-- Auto-mode role picker: receiver also needs a way to paste an invite link -->
+      <div id="role-receive-input" class="hidden mt-4 rounded-lg border border-[var(--color-border)] p-5">
+        <h3 class="font-semibold mb-1">Paste your invite link</h3>
+        <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+          The sender should have given you a link like
+          <code class="font-mono text-xs">https://…/transfer?r=abc123</code>.
+          You can also just paste the room ID (the part after <code class="font-mono text-xs">?r=</code>).
+        </p>
+        <div class="flex gap-2">
+          <input
+            id="role-receive-link"
+            type="text"
+            placeholder="https://… or just the room ID"
+            class="flex-1 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
+          />
+          <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40" disabled>Join</button>
+        </div>
+        <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
+          No link yet? Ask the sender to copy theirs, or use
+          <button id="role-receive-paranoid" class="underline hover:text-[var(--color-fg)]">paranoid mode</button>
+          to exchange a manual handshake instead.
+        </p>
+      </div>
     </section>
-
-    <!-- Status card (hidden until a role is picked) -->
     <div id="status-card" class="hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-6">
       <div class="flex items-center gap-3">
         <span id="status-dot" class="size-2.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
@@ -73,6 +94,19 @@ import { site } from "../site.config";
       <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
         Keep this tab open. Once the receiver loads the link, you can drop files.
       </p>
+    </section>
+
+    <!-- AUTO MODE: Retry button (shown only when connection actually failed) -->
+    <section id="retry-panel" class="hidden rounded-lg border border-[var(--color-danger)] p-5 mb-6">
+      <h3 class="font-semibold">Connection failed</h3>
+      <p class="mt-2 text-sm text-[var(--color-fg-muted)]">
+        Couldn't reach the peer over WebRTC. This usually happens on strict mobile networks
+        (carrier NAT) or corporate firewalls. Try a different network, or switch to paranoid mode.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button id="retry-btn" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Try again</button>
+        <button id="retry-paranoid" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Switch to paranoid mode</button>
+      </div>
     </section>
 
     <!-- PARANOID MODE: role-aware stepper -->
@@ -234,6 +268,10 @@ import { site } from "../site.config";
     const rolePicker = $("role-picker");
     const roleSendBtn = $<HTMLButtonElement>("role-send");
     const roleRecvBtn = $<HTMLButtonElement>("role-receive");
+    const roleReceiveInput = $("role-receive-input");
+    const roleReceiveLink = $<HTMLInputElement>("role-receive-link");
+    const roleReceiveGo = $<HTMLButtonElement>("role-receive-go");
+    const roleReceiveParanoid = $<HTMLButtonElement>("role-receive-paranoid");
     const statusCard = $("status-card");
     const statusDot = $("status-dot");
     const statusLabel = $("status-label");
@@ -242,6 +280,9 @@ import { site } from "../site.config";
     const senderLink = $("sender-link");
     const shareLink = $<HTMLInputElement>("share-link");
     const copyLinkBtn = $<HTMLButtonElement>("copy-link");
+    const retryPanel = $("retry-panel");
+    const retryBtn = $<HTMLButtonElement>("retry-btn");
+    const retryParanoidBtn = $<HTMLButtonElement>("retry-paranoid");
     const paranoidToggle = $<HTMLInputElement>("paranoid-toggle");
     const paranoidPanel = $("paranoid-panel");
     const psSender = $("paranoid-sender");
@@ -402,8 +443,13 @@ import { site } from "../site.config";
         if (state === "connected") {
           transferPanel.classList.remove("hidden");
           senderLink.classList.add("hidden");
+          retryPanel.classList.add("hidden");
           paranoidPanel.classList.add("hidden");
           chatPanel.classList.remove("hidden");
+          // Re-enable chat in case it was disabled by a transient disconnect.
+          chatInput.disabled = false;
+          chatInput.placeholder = "Type a message…";
+          chatSend.disabled = chatInput.value.trim().length === 0;
           if (role === "receiver") {
             dropZone.classList.add("hidden");
             receiverWait.classList.remove("hidden");
@@ -411,15 +457,20 @@ import { site } from "../site.config";
             receiverWait.classList.add("hidden");
             dropZone.classList.remove("hidden");
           }
-          addWarning(
-            "Keep this tab in the foreground during transfer — background tabs are throttled by the browser.",
-          );
         }
-        if (state === "disconnected" || state === "failed") {
+        if (state === "failed") {
+          // Hard failure — show retry, hide the share link so user
+          // doesn't keep sharing a dead room.
+          senderLink.classList.add("hidden");
+          paranoidPanel.classList.add("hidden");
+          retryPanel.classList.remove("hidden");
           chatSend.disabled = true;
           chatInput.disabled = true;
           chatInput.placeholder = "Peer disconnected";
         }
+        // NOTE: 'disconnected' is transient on mobile networks (ICE
+        // renegotiation) — we deliberately do NOT disable chat on it.
+        // Only 'failed' is terminal.
       });
 
       s.emitter.on("error", (e) => {
@@ -752,6 +803,7 @@ import { site } from "../site.config";
       warnings.innerHTML = "";
       transferPanel.classList.add("hidden");
       senderLink.classList.add("hidden");
+      retryPanel.classList.add("hidden");
       paranoidPanel.classList.add("hidden");
       resetChatUI();
       showStatus();
@@ -792,10 +844,74 @@ import { site } from "../site.config";
       bootRole();
     };
     roleRecvBtn.onclick = () => {
+      // Reveal the "paste link" input. We don't actually boot until the
+      // user clicks Join (or switches to paranoid mode).
+      roleReceiveInput.classList.remove("hidden");
+      roleReceiveLink.focus();
+    };
+
+    /** Extract a room ID from a pasted invite link OR a bare ID. */
+    const extractRoomId = (input: string): string | null => {
+      const v = input.trim();
+      if (!v) return null;
+      // Try parsing as URL first.
+      try {
+        const u = new URL(v);
+        const fromQuery = u.searchParams.get("r");
+        if (fromQuery) return fromQuery;
+        const fromHash = u.hash.replace(/^#/, "");
+        if (fromHash) return fromHash;
+      } catch {
+        /* not a URL — fall through to bare-ID handling */
+      }
+      // Accept a bare room ID (12 hex chars per generateRoomId).
+      if (/^[\w-]{4,128}$/.test(v)) return v;
+      return null;
+    };
+
+    const updateJoinBtn = () => {
+      roleReceiveGo.disabled = extractRoomId(roleReceiveLink.value) === null;
+    };
+    roleReceiveLink.addEventListener("input", updateJoinBtn);
+    roleReceiveLink.addEventListener("paste", () => setTimeout(updateJoinBtn, 0));
+    roleReceiveLink.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        roleReceiveGo.click();
+      }
+    });
+
+    roleReceiveGo.onclick = () => {
+      const room = extractRoomId(roleReceiveLink.value);
+      if (!room) {
+        addWarning("Couldn't read a room ID from that. Paste the full link or just the room ID after ?r=");
+        return;
+      }
       role = "receiver";
-      // Force paranoid for receivers without a link.
+      rolePicker.classList.add("hidden");
+      // Inject as URL param so re-bootRole picks it up cleanly.
+      const u = new URL(location.href);
+      u.searchParams.set("r", room);
+      history.replaceState(null, "", u.toString());
+      bootRole();
+    };
+
+    roleReceiveParanoid.onclick = () => {
+      role = "receiver";
       paranoidToggle.checked = true;
       rolePicker.classList.add("hidden");
+      bootRole();
+    };
+
+    // Retry handlers (sender side, after a connection failure)
+    retryBtn.onclick = () => {
+      // Same role, same mode — just rebuild from scratch with a fresh room.
+      retryPanel.classList.add("hidden");
+      bootRole();
+    };
+    retryParanoidBtn.onclick = () => {
+      retryPanel.classList.add("hidden");
+      paranoidToggle.checked = true;
       bootRole();
     };
 

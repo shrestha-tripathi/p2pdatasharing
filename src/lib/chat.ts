@@ -54,7 +54,9 @@ export class ChatManager {
     });
 
     session.emitter.on("state", (s) => {
-      if (s === "disconnected" || s === "failed") {
+      // Only treat 'failed' as terminal — 'disconnected' fires transiently
+      // during ICE renegotiation on mobile networks and recovers shortly.
+      if (s === "failed") {
         this.emitter.emit("peerDisconnected", undefined);
       }
     });
