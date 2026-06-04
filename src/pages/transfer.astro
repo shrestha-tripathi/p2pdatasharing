@@ -1230,7 +1230,13 @@ import { site } from "../site.config";
       eta: HTMLElement;
       action: HTMLElement;
       resume: HTMLElement;
+      /** Retry / status pill on the row (e.g. "Reconnecting 3/8…"). */
+      status: HTMLElement;
+      /** Cancel button (sender rows only — receiver doesn't initiate). */
+      cancel: HTMLButtonElement;
       name: string;
+      /** File UUID — populated for sender rows so cancel() can target it. */
+      id?: string;
     };
     const sendingRows: Row[] = [];
     let activeSendRow: Row | null = null;
@@ -1242,14 +1248,22 @@ import { site } from "../site.config";
       el.className = "rounded-lg border border-[var(--color-border)] p-4";
       el.innerHTML = `
         <div class="flex items-center justify-between gap-3">
-          <div class="flex items-center gap-2 min-w-0">
+          <div class="flex items-center gap-2 min-w-0 flex-wrap">
             <span class="text-xs px-2 py-0.5 rounded-full bg-[var(--color-bg-muted)] uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">
               ${kind === "send" ? "Sending" : "Receiving"}
             </span>
             <span class="font-medium truncate" data-field="name"></span>
             <span class="hidden text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-bg-muted)] text-[var(--color-accent)] border border-[var(--color-accent)] uppercase tracking-[0.06em] font-medium shrink-0" data-field="resume"></span>
+            <span class="hidden text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-bg-muted)] text-[var(--color-warning,#f59e0b)] border border-[var(--color-warning,#f59e0b)] uppercase tracking-[0.06em] font-medium shrink-0" data-field="status"></span>
           </div>
-          <span class="text-sm text-[var(--color-fg-muted)] tabular-nums" data-field="pct">0%</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-sm text-[var(--color-fg-muted)] tabular-nums" data-field="pct">0%</span>
+            ${kind === "send" ? `
+              <button type="button" data-field="cancel"
+                class="hidden h-7 rounded-md border border-[var(--color-border)] px-2 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-danger,#ef4444)] hover:border-[var(--color-danger,#ef4444)]"
+                title="Cancel transfer">Cancel</button>
+            ` : ""}
+          </div>
         </div>
         <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
           <div class="h-full w-0 bg-[var(--color-accent)] transition-[width] duration-150" data-field="bar"></div>
@@ -1264,6 +1278,7 @@ import { site } from "../site.config";
       const q = (s: string) => el.querySelector(`[data-field="${s}"]`) as HTMLElement;
       q("name").textContent = name;
       fileList.appendChild(el);
+      const cancelBtn = (el.querySelector('[data-field="cancel"]') as HTMLButtonElement | null);
       return {
         el, name,
         bar: q("bar"),
@@ -1273,6 +1288,8 @@ import { site } from "../site.config";
         eta: q("eta"),
         action: q("action"),
         resume: q("resume"),
+        status: q("status"),
+        cancel: cancelBtn ?? document.createElement("button"),
       };
     };
 
@@ -1693,23 +1710,64 @@ import { site } from "../site.config";
         const existing = m.id ? sendRowsById.get(m.id) : undefined;
         if (existing) {
           activeSendRow = existing;
+          existing.id = m.id;
           showResumeBadge(existing, m.resumedFrom ?? 0, m.size);
+          // Reset retry status if we got here from a retry — the new
+          // attempt has begun in earnest.
+          existing.status.classList.add("hidden");
+          existing.status.textContent = "";
         } else {
           activeSendRow = makeRow(m.name, "send");
+          activeSendRow.id = m.id;
           sendingRows.push(activeSendRow);
           if (m.id) sendRowsById.set(m.id, activeSendRow);
           showResumeBadge(activeSendRow, m.resumedFrom ?? 0, m.size);
+        }
+        // Reveal cancel button + wire handler (idempotent — replacing onclick
+        // is safe). Hidden by default so receiver rows never get one.
+        if (activeSendRow.cancel.dataset.field === "cancel" && m.id) {
+          activeSendRow.cancel.classList.remove("hidden");
+          activeSendRow.cancel.onclick = () => {
+            if (!confirm(`Cancel sending "${m.name}"?`)) return;
+            transfer.cancel(m.id!);
+            activeSendRow!.cancel.disabled = true;
+            activeSendRow!.cancel.textContent = "Cancelling…";
+          };
         }
       });
       transfer.emitter.on("sendProgress", (p) => {
         if (activeSendRow) updateRow(activeSendRow, p);
         updateTitleProgress(p.bytes, p.total, "Sending");
       });
+      // Retry tick — sender's awaitChannelOpen is waiting for re-connect.
+      // Surface as a per-row pill so users see we're actively recovering.
+      transfer.emitter.on("sendRetry", ({ id, attempt, maxAttempts, timeoutMs }) => {
+        const row = sendRowsById.get(id);
+        if (!row) return;
+        const sec = Math.round(timeoutMs / 1000);
+        row.status.textContent = `Reconnecting ${attempt}/${maxAttempts} · up to ${sec}s`;
+        row.status.classList.remove("hidden");
+      });
+      transfer.emitter.on("sendCancelled", ({ id }) => {
+        // Matched release for sendStart acquire.
+        void releaseWakeLock();
+        untrackBackgroundTransfer();
+        const row = sendRowsById.get(id);
+        if (row) {
+          row.status.classList.add("hidden");
+          row.cancel.classList.add("hidden");
+          row.action.classList.remove("hidden");
+          row.action.innerHTML = `<span class="text-sm text-[var(--color-fg-muted)]">✕ Cancelled</span>`;
+        }
+        if (activeSendRow && activeSendRow.id === id) activeSendRow = null;
+      });
       transfer.emitter.on("sendComplete", (m) => {
         // Matched release for sendStart acquire.
         void releaseWakeLock();
         untrackBackgroundTransfer();
         if (activeSendRow) {
+          activeSendRow.status.classList.add("hidden");
+          activeSendRow.cancel.classList.add("hidden");
           activeSendRow.action.classList.remove("hidden");
           activeSendRow.action.innerHTML = `<span class="text-sm text-[var(--color-success)]">✓ Sent ${formatBytes(m.size)}</span>`;
         }

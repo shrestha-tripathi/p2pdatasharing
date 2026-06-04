@@ -46,10 +46,29 @@ export interface TransferProgress {
   resumedFrom?: number;
 }
 
+/**
+ * Sender-side retry status — fired between failed sendOnce() attempts so
+ * the UI can show "Reconnecting (3/8)…" instead of a silent stuck bar.
+ */
+export interface RetryStatus {
+  id: string;
+  attempt: number;
+  maxAttempts: number;
+  timeoutMs: number;
+}
+
 export interface TransferEvents {
   sendStart: FileMeta & { resumedFrom?: number };
   sendProgress: TransferProgress;
   sendComplete: FileMeta;
+  /**
+   * Sender retry tick — fires when sendOnce() fails and we begin waiting
+   * for the channel to come back. UI listens for this to show a "Reconnecting"
+   * label with attempt count.
+   */
+  sendRetry: RetryStatus;
+  /** User cancelled the send via FileTransfer.cancel(id). */
+  sendCancelled: { id: string };
   receiveStart: FileMeta & { resumedFrom?: number };
   receiveProgress: TransferProgress;
   receiveComplete: { meta: FileMeta; file: File };
@@ -111,6 +130,9 @@ export class FileTransfer {
 
   // Sender state: pending resumeAnswer resolvers, keyed by file id.
   private pendingResumes = new Map<string, (offset: number) => void>();
+
+  /** IDs the user has explicitly cancelled — checked between retry attempts. */
+  private cancelledIds = new Set<string>();
 
   /**
    * Tail of the message-processing chain. Serializes ALL incoming
@@ -206,6 +228,12 @@ export class FileTransfer {
     const MAX_ATTEMPTS = 8;
     let lastErr: unknown;
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      // Honor explicit cancel between attempts.
+      if (meta.id && this.cancelledIds.has(meta.id)) {
+        this.cancelledIds.delete(meta.id);
+        this.emitter.emit("sendCancelled", { id: meta.id });
+        return;
+      }
       try {
         await this.sendOnce(file, meta);
         return;
@@ -218,8 +246,26 @@ export class FileTransfer {
         // If channel is definitely closed, wait for re-open (or timeout) and retry.
         const ch = this.session.channel;
         if (!ch || ch.readyState !== "open") {
-          const ok = await this.awaitChannelOpen(this.computeReconnectTimeout());
+          const timeoutMs = this.computeReconnectTimeout();
+          // UI affordance: surface a "Reconnecting (n/N)" status with the
+          // timeout window we're willing to wait. Skip on the very last
+          // attempt — no point telling the user we're trying when we're not.
+          if (meta.id && attempt < MAX_ATTEMPTS) {
+            this.emitter.emit("sendRetry", {
+              id: meta.id,
+              attempt: attempt + 1,
+              maxAttempts: MAX_ATTEMPTS,
+              timeoutMs,
+            });
+          }
+          const ok = await this.awaitChannelOpen(timeoutMs);
           if (!ok) break; // gave up — bubble error
+          // Re-check cancellation now that we have a channel again.
+          if (meta.id && this.cancelledIds.has(meta.id)) {
+            this.cancelledIds.delete(meta.id);
+            this.emitter.emit("sendCancelled", { id: meta.id });
+            return;
+          }
           continue;
         }
         // Channel still open but send threw for some other reason — abort.
@@ -227,6 +273,25 @@ export class FileTransfer {
       }
     }
     this.emitter.emit("error", lastErr as Error);
+  }
+
+  /**
+   * Cancel an in-flight or pending send by file id. Idempotent — calling
+   * with an unknown id is a no-op. The active sendOnce() will surface
+   * a 'data channel closed mid-transfer' error which the retry loop will
+   * intercept, observe the cancelledIds membership, and emit sendCancelled
+   * cleanly. UI should always wait for sendCancelled / error / sendComplete
+   * before tearing down its row state.
+   */
+  cancel(id: string): void {
+    this.cancelledIds.add(id);
+    // If we're currently waiting on a resumeAnswer, kick it loose so the
+    // sender thread doesn't sit for up to 12s before noticing the cancel.
+    const resolver = this.pendingResumes.get(id);
+    if (resolver) {
+      resolver(0); // resolves the awaitResumeAnswer promise; the next
+                   // ch.send() will throw if channel was force-closed
+    }
   }
 
   /**
@@ -313,6 +378,12 @@ export class FileTransfer {
           // Free the stream reader before throwing so it doesn't leak.
           try { reader.cancel(); } catch { /* ignore */ }
           throw new Error("data channel closed mid-transfer");
+        }
+        // Honour mid-transfer cancellation. We throw the same error path
+        // as a channel close so the retry loop observes cancelledIds.
+        if (meta.id && this.cancelledIds.has(meta.id)) {
+          try { reader.cancel(); } catch { /* ignore */ }
+          throw new Error("transfer cancelled by user");
         }
         ch.send(buf);
 
