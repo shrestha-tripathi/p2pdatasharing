@@ -99,7 +99,7 @@ export class FileTransfer {
 
   // ---------- SENDER ----------
 
-  /** Send a single file. */
+  /** Send a single file. Auto-retries on transient channel close. */
   async send(file: File) {
     const meta: FileMeta = {
       id: makeId(),
@@ -107,7 +107,51 @@ export class FileTransfer {
       size: file.size,
       mime: file.type || "application/octet-stream",
     };
+    // Attempt up to N times; between attempts wait for channel to re-open.
+    // Each attempt re-runs the handshake so we always resume from the
+    // receiver's authoritative on-disk offset.
+    const MAX_ATTEMPTS = 8;
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.sendOnce(file, meta);
+        return;
+      } catch (e) {
+        lastErr = e;
+        // If channel is definitely closed, wait for re-open (or timeout) and retry.
+        const ch = this.session.channel;
+        if (!ch || ch.readyState !== "open") {
+          const ok = await this.awaitChannelOpen(30_000);
+          if (!ok) break; // gave up — bubble error
+          continue;
+        }
+        // Channel still open but send threw for some other reason — abort.
+        break;
+      }
+    }
+    this.emitter.emit("error", lastErr as Error);
+  }
 
+  /** Wait until the data channel is open again, or `timeoutMs` elapses. */
+  private awaitChannelOpen(timeoutMs: number): Promise<boolean> {
+    const ch = this.session.channel;
+    if (ch && ch.readyState === "open") return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ok: boolean) => {
+        if (settled) return;
+        settled = true;
+        off();
+        clearTimeout(timer);
+        resolve(ok);
+      };
+      const off = this.session.emitter.on("channelOpen", () => finish(true));
+      const timer = setTimeout(() => finish(false), timeoutMs);
+    });
+  }
+
+  /** Single attempt at sending `file`. Throws on channel failure. */
+  private async sendOnce(file: File, meta: FileMeta) {
     // 1. metadata header
     this.session.send(JSON.stringify({ kind: "meta", ...meta }));
 
@@ -153,6 +197,11 @@ export class FileTransfer {
         new Uint8Array(buf).set(slice);
 
         await this.waitForBuffer(ch);
+        if (ch.readyState !== "open") {
+          // Free the stream reader before throwing so it doesn't leak.
+          try { reader.cancel(); } catch { /* ignore */ }
+          throw new Error("data channel closed mid-transfer");
+        }
         ch.send(buf);
 
         pos = end;
