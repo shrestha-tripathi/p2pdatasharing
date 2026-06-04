@@ -12,14 +12,18 @@ import { site } from "../site.config";
   <Nav />
 
   <main class="mx-auto max-w-[1000px] px-4 md:px-8 py-10 md:py-16">
-    <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-8">
+    <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 mb-8">
       <div>
         <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Workspace</p>
         <h1 class="mt-2 text-3xl md:text-4xl font-semibold tracking-tight">Teleport a file</h1>
       </div>
-      <label class="inline-flex items-center gap-2 text-sm text-[var(--color-fg-muted)] cursor-pointer select-none">
-        <input id="paranoid-toggle" type="checkbox" class="size-4 accent-[var(--color-accent)]" />
-        Paranoid mode (manual SDP exchange)
+      <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Paranoid mode skips our signaling server — you copy/paste the handshake yourself">
+        <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
+        <span class="relative inline-block">
+          <input id="paranoid-toggle" type="checkbox" class="peer sr-only" />
+          <span class="block w-11 h-6 rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] transition-colors peer-checked:bg-[var(--color-accent)] peer-checked:border-[var(--color-accent)]"></span>
+          <span class="absolute top-[3px] left-[3px] size-4 rounded-full bg-[var(--color-bg)] border border-[var(--color-border-strong)] transition-transform shadow-sm peer-checked:translate-x-5 peer-checked:border-[var(--color-accent)]"></span>
+        </span>
       </label>
     </header>
 
@@ -45,17 +49,74 @@ import { site } from "../site.config";
       </p>
     </section>
 
-    <!-- PARANOID MODE: manual SDP boxes -->
-    <section id="paranoid-panel" class="hidden rounded-lg border border-[var(--color-border)] p-5 mb-6 space-y-4">
-      <div>
-        <label class="text-sm font-medium">Step 1 — Your offer/answer blob (share with peer):</label>
-        <textarea id="local-blob" readonly class="mt-2 w-full h-32 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 font-mono text-xs"></textarea>
-        <button id="copy-local-blob" class="mt-2 h-9 rounded-md border border-[var(--color-border)] px-3 text-sm hover:bg-[var(--color-bg-muted)]">Copy</button>
+    <!-- PARANOID MODE: role-aware stepper -->
+    <section id="paranoid-panel" class="hidden mb-6">
+      <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-5 mb-4">
+        <p class="text-sm text-[var(--color-fg-muted)]">
+          <span class="font-medium text-[var(--color-fg)]">Paranoid mode active.</span>
+          The signaling server is bypassed — you'll exchange a one-time handshake string with your peer over any channel you trust (Signal, email, in person). Once exchanged, the file transfer itself is fully end-to-end encrypted and direct.
+        </p>
       </div>
-      <div>
-        <label class="text-sm font-medium">Step 2 — Paste the peer's blob:</label>
-        <textarea id="remote-blob" class="mt-2 w-full h-32 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs"></textarea>
-        <button id="submit-remote-blob" class="mt-2 h-9 rounded-md bg-[var(--color-fg)] px-3 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Submit</button>
+
+      <!-- ============== SENDER FLOW ============== -->
+      <div id="paranoid-sender" class="hidden space-y-4">
+        <!-- Step 1: share offer -->
+        <div id="psender-step1" class="rounded-lg border-2 border-[var(--color-accent)] p-5 transition-opacity">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-accent)] text-white text-sm font-semibold">1</span>
+            <h3 class="font-semibold">Send your invite code to the receiver</h3>
+          </div>
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            Copy the code below and send it to the person you want to share with — over Signal, email, WhatsApp, or even paste it into a chat.
+          </p>
+          <textarea id="sender-offer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Generating invite code…"></textarea>
+          <div class="mt-3 flex gap-2">
+            <button id="sender-copy-offer" class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-50" disabled>Copy invite code</button>
+            <button id="sender-mark-shared" class="h-9 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)] disabled:opacity-50" disabled>I've shared it →</button>
+          </div>
+        </div>
+
+        <!-- Step 2: paste answer -->
+        <div id="psender-step2" class="rounded-lg border border-[var(--color-border)] p-5 opacity-40 pointer-events-none transition-opacity">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] text-sm font-semibold">2</span>
+            <h3 class="font-semibold">Paste the receiver's reply code</h3>
+          </div>
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            The receiver will generate a reply code after they open your invite. Paste it below to finish the handshake.
+          </p>
+          <textarea id="sender-answer-blob" class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Paste the reply code from the receiver here…"></textarea>
+          <button id="sender-submit-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Connect</button>
+        </div>
+      </div>
+
+      <!-- ============== RECEIVER FLOW ============== -->
+      <div id="paranoid-receiver" class="hidden space-y-4">
+        <!-- Step 1: paste offer -->
+        <div id="precv-step1" class="rounded-lg border-2 border-[var(--color-accent)] p-5 transition-opacity">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-accent)] text-white text-sm font-semibold">1</span>
+            <h3 class="font-semibold">Paste the sender's invite code</h3>
+          </div>
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            Your peer should have sent you a long string starting with a few random characters. Paste it here.
+          </p>
+          <textarea id="recv-offer-blob" class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Paste the invite code from the sender here…"></textarea>
+          <button id="recv-generate-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Generate reply code</button>
+        </div>
+
+        <!-- Step 2: share answer -->
+        <div id="precv-step2" class="rounded-lg border border-[var(--color-border)] p-5 opacity-40 pointer-events-none transition-opacity">
+          <div class="flex items-center gap-3 mb-3">
+            <span class="inline-flex size-7 items-center justify-center rounded-full bg-[var(--color-bg-muted)] border border-[var(--color-border-strong)] text-sm font-semibold">2</span>
+            <h3 class="font-semibold">Send the reply code back to the sender</h3>
+          </div>
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            Copy the code below and send it back to the sender. Once they paste it on their end, the transfer connection opens automatically.
+          </p>
+          <textarea id="recv-answer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs"></textarea>
+          <button id="recv-copy-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Copy reply code</button>
+        </div>
       </div>
     </section>
 
@@ -132,10 +193,23 @@ import { site } from "../site.config";
     const copyLinkBtn = $<HTMLButtonElement>("copy-link");
     const paranoidToggle = $<HTMLInputElement>("paranoid-toggle");
     const paranoidPanel = $("paranoid-panel");
-    const localBlob = $<HTMLTextAreaElement>("local-blob");
-    const remoteBlob = $<HTMLTextAreaElement>("remote-blob");
-    const copyLocalBlobBtn = $<HTMLButtonElement>("copy-local-blob");
-    const submitRemoteBlobBtn = $<HTMLButtonElement>("submit-remote-blob");
+    const psSender = $("paranoid-sender");
+    const psRecv = $("paranoid-receiver");
+    // sender
+    const senderOfferBlob = $<HTMLTextAreaElement>("sender-offer-blob");
+    const senderCopyOffer = $<HTMLButtonElement>("sender-copy-offer");
+    const senderMarkShared = $<HTMLButtonElement>("sender-mark-shared");
+    const psenderStep1 = $("psender-step1");
+    const psenderStep2 = $("psender-step2");
+    const senderAnswerBlob = $<HTMLTextAreaElement>("sender-answer-blob");
+    const senderSubmitAnswer = $<HTMLButtonElement>("sender-submit-answer");
+    // receiver
+    const recvOfferBlob = $<HTMLTextAreaElement>("recv-offer-blob");
+    const recvGenerateAnswer = $<HTMLButtonElement>("recv-generate-answer");
+    const precvStep1 = $("precv-step1");
+    const precvStep2 = $("precv-step2");
+    const recvAnswerBlob = $<HTMLTextAreaElement>("recv-answer-blob");
+    const recvCopyAnswer = $<HTMLButtonElement>("recv-copy-answer");
 
     const transferPanel = $("transfer-panel");
     const dropZone = $("drop-zone");
@@ -303,33 +377,117 @@ import { site } from "../site.config";
       wireSession(session);
       paranoidPanel.classList.remove("hidden");
       senderLink.classList.add("hidden");
-      setStatus("signaling", isReceiver ? "Paste the sender's offer below." : "Generating offer…");
+
+      // Reset both flows
+      psSender.classList.add("hidden");
+      psRecv.classList.add("hidden");
+      senderOfferBlob.value = "";
+      senderAnswerBlob.value = "";
+      recvOfferBlob.value = "";
+      recvAnswerBlob.value = "";
+      lockStep(psenderStep2, true);
+      lockStep(precvStep2, true);
+      senderCopyOffer.disabled = true;
+      senderMarkShared.disabled = true;
 
       if (isReceiver) {
-        // Wait for user to paste an offer; answer is generated on submit.
-        submitRemoteBlobBtn.onclick = async () => {
+        psRecv.classList.remove("hidden");
+        setStatus("signaling", "Step 1 — paste the sender's invite code below.");
+
+        recvGenerateAnswer.onclick = async () => {
+          const blob = recvOfferBlob.value.trim();
+          const kind = peekBlobType(blob);
+          if (kind !== "offer") {
+            addWarning(
+              kind === "answer"
+                ? "That looks like a reply code, not an invite code. Reply codes go on the sender's side — make sure you pasted the right one."
+                : kind === "empty"
+                ? "Paste the invite code from the sender first."
+                : "That doesn't look like a valid invite code. Ask the sender to copy it again — it should be a long string of letters/numbers/+/=.",
+            );
+            return;
+          }
+          recvGenerateAnswer.disabled = true;
+          recvGenerateAnswer.textContent = "Generating…";
           try {
-            const answer = await session!.joinManual(remoteBlob.value.trim());
-            localBlob.value = answer;
+            const answer = await session!.joinManual(blob);
+            recvAnswerBlob.value = answer;
+            lockStep(precvStep1, true);
+            lockStep(precvStep2, false);
+            setStatus("signaling", "Step 2 — copy the reply code and send it back to the sender.");
           } catch (e) {
             addWarning((e as Error).message);
+            recvGenerateAnswer.disabled = false;
+            recvGenerateAnswer.textContent = "Generate reply code";
           }
         };
       } else {
+        psSender.classList.remove("hidden");
+        setStatus("signaling", "Generating your invite code…");
         try {
           const offer = await session.hostManual();
-          localBlob.value = offer;
-          setStatus("signaling", "Share the blob above with the receiver, then paste their answer below.");
-          submitRemoteBlobBtn.onclick = async () => {
+          senderOfferBlob.value = offer;
+          senderCopyOffer.disabled = false;
+          senderMarkShared.disabled = false;
+          setStatus("signaling", "Step 1 — share the invite code with the receiver.");
+
+          senderMarkShared.onclick = () => {
+            lockStep(psenderStep1, true);
+            lockStep(psenderStep2, false);
+            setStatus("signaling", "Step 2 — paste the receiver's reply code below.");
+            senderAnswerBlob.focus();
+          };
+
+          senderSubmitAnswer.onclick = async () => {
+            const blob = senderAnswerBlob.value.trim();
+            const kind = peekBlobType(blob);
+            if (kind !== "answer") {
+              addWarning(
+                kind === "offer"
+                  ? "That looks like another invite code, not a reply code. The receiver needs to first paste your invite code, then send you back the *reply* code they generate."
+                  : kind === "empty"
+                  ? "Paste the receiver's reply code first."
+                  : "That doesn't look like a valid reply code. Ask the receiver to copy it again — it should be a long string of letters/numbers/+/=.",
+              );
+              return;
+            }
+            senderSubmitAnswer.disabled = true;
+            senderSubmitAnswer.textContent = "Connecting…";
             try {
-              await session!.acceptManualAnswer(remoteBlob.value.trim());
+              await session!.acceptManualAnswer(blob);
             } catch (e) {
               addWarning((e as Error).message);
+              senderSubmitAnswer.disabled = false;
+              senderSubmitAnswer.textContent = "Connect";
             }
           };
         } catch (e) {
           addWarning((e as Error).message);
         }
+      }
+    };
+
+    const lockStep = (el: HTMLElement, locked: boolean) => {
+      if (locked) {
+        el.classList.add("opacity-40", "pointer-events-none");
+        el.classList.remove("border-2", "border-[var(--color-accent)]");
+        el.classList.add("border", "border-[var(--color-border)]");
+      } else {
+        el.classList.remove("opacity-40", "pointer-events-none");
+        el.classList.remove("border", "border-[var(--color-border)]");
+        el.classList.add("border-2", "border-[var(--color-accent)]");
+      }
+    };
+
+    /** Inspect a base64-encoded SDP blob and report what type it is. */
+    const peekBlobType = (blob: string): "offer" | "answer" | "empty" | "invalid" => {
+      if (!blob || !blob.trim()) return "empty";
+      try {
+        const json = JSON.parse(decodeURIComponent(escape(atob(blob.trim()))));
+        if (json?.type === "offer" || json?.type === "answer") return json.type;
+        return "invalid";
+      } catch {
+        return "invalid";
       }
     };
 
@@ -351,10 +509,15 @@ import { site } from "../site.config";
       copyLinkBtn.textContent = "Copied!";
       setTimeout(() => (copyLinkBtn.textContent = "Copy"), 1500);
     });
-    copyLocalBlobBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(localBlob.value);
-      copyLocalBlobBtn.textContent = "Copied!";
-      setTimeout(() => (copyLocalBlobBtn.textContent = "Copy"), 1500);
+    senderCopyOffer.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(senderOfferBlob.value);
+      senderCopyOffer.textContent = "Copied!";
+      setTimeout(() => (senderCopyOffer.textContent = "Copy invite code"), 1500);
+    });
+    recvCopyAnswer.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(recvAnswerBlob.value);
+      recvCopyAnswer.textContent = "Copied!";
+      setTimeout(() => (recvCopyAnswer.textContent = "Copy reply code"), 1500);
     });
 
     // Visibility warning when tab goes background mid-transfer.
