@@ -538,6 +538,143 @@ import { site } from "../site.config";
       row.eta.textContent = `ETA ${formatEta(p.etaSec)}`;
     };
 
+    // ---------- File preview ----------
+    /**
+     * Detect what kind of preview we can render for a received file.
+     * Returns the HTML markup; wirePreview() attaches handlers after insert.
+     */
+    type PreviewKind = "image" | "svg" | "video" | "audio" | "pdf" | "text" | "none";
+
+    const detectPreviewKind = (file: File, name: string): PreviewKind => {
+      const ext = name.toLowerCase().split(".").pop() ?? "";
+      const mime = file.type.toLowerCase();
+      if (mime.startsWith("image/") && mime !== "image/svg+xml") return "image";
+      if (mime === "image/svg+xml" || ext === "svg") return "svg";
+      if (mime.startsWith("video/")) return "video";
+      if (mime.startsWith("audio/")) return "audio";
+      if (mime === "application/pdf" || ext === "pdf") return "pdf";
+      if (
+        mime.startsWith("text/") ||
+        mime === "application/json" ||
+        mime === "application/xml" ||
+        ["txt", "md", "csv", "tsv", "json", "xml", "yaml", "yml", "ts", "js", "tsx", "jsx", "py", "sh", "html", "css", "log", "ini", "conf", "toml"].includes(ext)
+      ) {
+        return "text";
+      }
+      return "none";
+    };
+
+    // Cap previews so we don't churn through huge files in-browser.
+    const MAX_IMAGE_PREVIEW = 25 * 1024 * 1024; // 25 MB
+    const MAX_VIDEO_PREVIEW = 200 * 1024 * 1024; // 200 MB
+    const MAX_TEXT_PREVIEW = 1 * 1024 * 1024; // 1 MB
+
+    const buildPreview = (file: File, meta: { size: number; name: string }): string => {
+      const kind = detectPreviewKind(file, meta.name);
+      const wrap = (inner: string) =>
+        `<div class="mt-3 rounded-lg border border-[var(--color-border)] overflow-hidden bg-[var(--color-bg-subtle)]" data-preview="${kind}">${inner}</div>`;
+
+      switch (kind) {
+        case "image":
+        case "svg":
+          if (meta.size > MAX_IMAGE_PREVIEW) {
+            return wrap(`<p class="p-4 text-xs text-[var(--color-fg-subtle)] text-center">Image too large to preview (${formatBytes(meta.size)}) — save and open instead.</p>`);
+          }
+          return wrap(`<img data-pv="img" alt="${escapeAttr(meta.name)}" class="block max-h-80 w-auto mx-auto" />`);
+
+        case "video":
+          if (meta.size > MAX_VIDEO_PREVIEW) {
+            return wrap(`<p class="p-4 text-xs text-[var(--color-fg-subtle)] text-center">Video too large to preview (${formatBytes(meta.size)}) — save and open instead.</p>`);
+          }
+          return wrap(`<video data-pv="video" controls preload="metadata" class="block max-h-80 w-full bg-black"></video>`);
+
+        case "audio":
+          return wrap(`<audio data-pv="audio" controls preload="metadata" class="block w-full"></audio>`);
+
+        case "pdf":
+          return wrap(`
+            <div class="p-3 flex items-center gap-3">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" class="text-[var(--color-fg-muted)] shrink-0">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+              </svg>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium truncate">${escapeText(meta.name)}</p>
+                <p class="text-xs text-[var(--color-fg-subtle)]">PDF · ${formatBytes(meta.size)}</p>
+              </div>
+              <button data-pv="pdf-open" class="h-8 rounded-md border border-[var(--color-border)] px-3 text-xs hover:bg-[var(--color-bg-muted)]">Open in new tab</button>
+            </div>
+          `);
+
+        case "text":
+          if (meta.size > MAX_TEXT_PREVIEW) {
+            return wrap(`<p class="p-4 text-xs text-[var(--color-fg-subtle)] text-center">Text file too large to preview (${formatBytes(meta.size)}) — save and open instead.</p>`);
+          }
+          return wrap(`
+            <pre data-pv="text" class="m-0 p-3 text-xs font-mono leading-relaxed max-h-80 overflow-auto whitespace-pre-wrap break-words text-[var(--color-fg)]">Loading…</pre>
+          `);
+
+        default:
+          return ""; // no preview for unknown / binary types
+      }
+    };
+
+    /**
+     * Hook up post-insertion logic for any preview that needs JS — sets
+     * blob URLs on media tags, fills text content, wires the PDF button.
+     * Uses one URL per preview and revokes it when the row is removed.
+     */
+    const wirePreview = (container: HTMLElement, file: File, meta: { name: string }) => {
+      const pv = container.querySelector("[data-preview]") as HTMLElement | null;
+      if (!pv) return;
+      const kind = pv.dataset.preview as PreviewKind;
+
+      const makeUrl = () => URL.createObjectURL(file);
+      let createdUrl: string | null = null;
+
+      if (kind === "image" || kind === "svg") {
+        const img = pv.querySelector('[data-pv="img"]') as HTMLImageElement;
+        createdUrl = makeUrl();
+        img.src = createdUrl;
+        img.onload = img.onerror = () => {
+          if (createdUrl) setTimeout(() => URL.revokeObjectURL(createdUrl!), 60_000);
+        };
+      } else if (kind === "video") {
+        const vid = pv.querySelector('[data-pv="video"]') as HTMLVideoElement;
+        createdUrl = makeUrl();
+        vid.src = createdUrl;
+      } else if (kind === "audio") {
+        const audio = pv.querySelector('[data-pv="audio"]') as HTMLAudioElement;
+        createdUrl = makeUrl();
+        audio.src = createdUrl;
+      } else if (kind === "pdf") {
+        const btn = pv.querySelector('[data-pv="pdf-open"]') as HTMLButtonElement;
+        btn.onclick = () => {
+          const u = makeUrl();
+          window.open(u, "_blank", "noopener");
+          // Revoke after a minute so the new tab has time to load.
+          setTimeout(() => URL.revokeObjectURL(u), 60_000);
+        };
+      } else if (kind === "text") {
+        const pre = pv.querySelector('[data-pv="text"]') as HTMLPreElement;
+        file.text()
+          .then((text) => {
+            // Cap rendered length so a 1MB JSON doesn't lock the UI.
+            const MAX_RENDER = 50_000;
+            pre.textContent = text.length > MAX_RENDER
+              ? `${text.slice(0, MAX_RENDER)}\n\n… (${formatBytes(file.size - MAX_RENDER)} more — save to see full file)`
+              : text;
+          })
+          .catch((e) => {
+            pre.textContent = `(Could not read text: ${(e as Error).message})`;
+          });
+      }
+    };
+
+    const escapeText = (s: string) =>
+      s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+    const escapeAttr = (s: string) => escapeText(s);
+
     // ---------- Wire session ----------
     const wireSession = (s: TeleportSession) => {
       transfer = new FileTransfer(s);
@@ -624,8 +761,10 @@ import { site } from "../site.config";
         if (activeRecvRow) {
           const row = activeRecvRow;
           row.action.classList.remove("hidden");
+          const preview = buildPreview(file, meta);
           row.action.innerHTML = `
-            <div class="flex items-center gap-2 flex-wrap">
+            ${preview}
+            <div class="flex items-center gap-2 flex-wrap mt-3">
               <button class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90" data-act="save">Save to disk</button>
               <span class="text-xs text-[var(--color-fg-subtle)]" data-act="hint">Pick where to save the file on your device</span>
             </div>
@@ -654,6 +793,8 @@ import { site } from "../site.config";
               addWarning((e as Error).message);
             }
           };
+          // Wire up preview interactions (text expansion, etc.)
+          wirePreview(row.action, file, meta);
         }
         activeRecvRow = null;
       });
