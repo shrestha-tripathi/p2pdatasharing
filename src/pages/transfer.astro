@@ -722,6 +722,11 @@ import { site } from "../site.config";
     // One-shot auto-recovery: if a sender's connection fails, rebuild on a fresh
     // room without bothering the user. Reset on manual retry or successful link.
     let autoReconnectAttempted = false;
+    // Tracks whether the current session ever reached "connected" — used
+    // to decide whether a "failed" event means "couldn't connect, try
+    // fresh room" (haven't connected yet) or "established session dropped,
+    // keep the same room so the peer can rejoin without a new link".
+    let everConnectedThisSession = false;
     let transfer: FileTransfer | null = null;
     let chat: ChatManager | null = null;
     let lastSessionState: PeerConnState | "idle" = "idle";
@@ -1486,6 +1491,7 @@ import { site } from "../site.config";
         lastSessionState = state;
         setStatus(state);
         if (state === "connected") {
+          everConnectedThisSession = true;
           // Audio chirp + buzz only on the FIRST connect (not on reconnect),
           // to avoid spamming on flaky networks.
           if (prevState !== "connected") {
@@ -1557,7 +1563,7 @@ import { site } from "../site.config";
             setTimeout(() => { bootDevicesAuto(); }, 800);
             return;
           }
-          if (role === "sender" && !autoReconnectAttempted) {
+          if (role === "sender" && !autoReconnectAttempted && !everConnectedThisSession) {
             autoReconnectAttempted = true;
             senderLink.classList.add("hidden");
             paranoidPanel.classList.add("hidden");
@@ -1571,6 +1577,18 @@ import { site } from "../site.config";
               history.replaceState({}, "", cleanUrl);
               bootRole();
             }, 800);
+            return;
+          }
+          // Established sender session that dropped (peer backgrounded /
+          // minimized / went to sleep) — keep the same room so the receiver
+          // can rejoin on their existing link. Show a friendly waiting state
+          // instead of minting a new QR + invalidating their old one.
+          if (role === "sender" && everConnectedThisSession) {
+            setStatus("signaling", "Peer disconnected — waiting for them to come back on the same link…");
+            addWarning("Peer disconnected. Same link still works when they return.");
+            chatSend.disabled = true;
+            chatInput.disabled = true;
+            chatInput.placeholder = "Peer disconnected — waiting for reconnect…";
             return;
           }
           // Already auto-recovered once, or we're the receiver — surface the
@@ -2833,6 +2851,7 @@ import { site } from "../site.config";
     };
 
     const bootRole = () => {
+      everConnectedThisSession = false;
       session?.destroy();
       session = null;
       transfer = null;
