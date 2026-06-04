@@ -250,7 +250,8 @@ import { site } from "../site.config";
     <div id="warnings" class="mt-6 space-y-3"></div>
 
     <p class="mt-10 text-xs text-[var(--color-fg-subtle)] text-center">
-      Signaling: <code class="font-mono">{site.signalingUrl}</code> · No file bytes are ever sent through it.
+      Your files never touch a cloud.
+      <a href={`${import.meta.env.BASE_URL}privacy`} class="underline hover:text-[var(--color-fg)] no-underline-children">Read how we keep it private →</a>
     </p>
   </main>
 
