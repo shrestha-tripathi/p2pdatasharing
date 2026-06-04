@@ -1344,27 +1344,92 @@ import { site } from "../site.config";
       return [];
     };
 
+    // Live zipping-progress UI: replaces the previous toast hint with a
+    // visible bar so multi-hundred-file folder drops don't feel hung.
+    const zipProgressContainer = document.createElement("div");
+    zipProgressContainer.id = "zip-progress-rows";
+    zipProgressContainer.className = "space-y-2";
+    // Mounted next to fileList so it appears with other transfer activity
+    fileList.parentElement?.insertBefore(zipProgressContainer, fileList);
+
+    const makeZipRow = (label: string, totalBytes: number) => {
+      const row = document.createElement("div");
+      row.className = "rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3";
+      row.innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2 min-w-0">
+            <svg class="text-[var(--color-fg-muted)] shrink-0 animate-pulse" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+            <span class="text-sm font-medium truncate" data-field="label"></span>
+          </div>
+          <span class="text-xs text-[var(--color-fg-muted)] tabular-nums" data-field="pct">0%</span>
+        </div>
+        <div class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
+          <div class="h-full w-0 bg-[var(--color-accent)] transition-[width] duration-150" data-field="bar"></div>
+        </div>
+        <p class="mt-2 text-xs text-[var(--color-fg-subtle)] tabular-nums" data-field="bytes">Zipping… preparing</p>
+      `;
+      (row.querySelector('[data-field="label"]') as HTMLElement).textContent = label;
+      zipProgressContainer.appendChild(row);
+      const bar = row.querySelector('[data-field="bar"]') as HTMLElement;
+      const pct = row.querySelector('[data-field="pct"]') as HTMLElement;
+      const bytes = row.querySelector('[data-field="bytes"]') as HTMLElement;
+      return {
+        el: row,
+        update(soFar: number) {
+          // We don't know total zip size upfront, so show "X / ~Y" using uncompressed total as approx
+          const ratio = totalBytes > 0 ? Math.min(0.99, soFar / totalBytes) : 0;
+          const p = (ratio * 100).toFixed(1);
+          pct.textContent = `${p}%`;
+          bar.style.width = `${p}%`;
+          bytes.textContent = `Zipping… ${formatBytes(soFar)} of ~${formatBytes(totalBytes)}`;
+        },
+        done() {
+          row.remove();
+        },
+      };
+    };
+
     const zipFilesAndQueue = async (
       files: { file: File; path: string }[],
       zipName: string,
     ) => {
       if (files.length === 0) return;
-      // Show toast-style hint while zipping (it can take a few seconds for big folders)
-      addWarning(`Zipping ${files.length} file${files.length === 1 ? "" : "s"}… please wait.`);
+      const totalUncompressed = files.reduce((acc, { file }) => acc + file.size, 0);
+      const progressRow = makeZipRow(
+        `${zipName} · ${files.length} file${files.length === 1 ? "" : "s"}`,
+        totalUncompressed,
+      );
       try {
-        // client-zip streams the response, but we need a File with known size
-        // (the protocol requires meta.size up front), so we materialize it.
+        // client-zip returns a Response with a streamed ReadableStream of
+        // the zip bytes. We need the full Blob (protocol needs meta.size
+        // up front) but we can tee progress along the way.
         const zipResponse = downloadZip(
           files.map(({ file, path }) => ({ name: path, lastModified: new Date(file.lastModified), input: file })),
         );
-        const blob = await zipResponse.blob();
+        const reader = zipResponse.body!.getReader();
+        const chunks: Uint8Array[] = [];
+        let bytesSoFar = 0;
+        let lastEmit = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          bytesSoFar += value.byteLength;
+          const now = performance.now();
+          if (now - lastEmit > 100) {
+            progressRow.update(bytesSoFar);
+            lastEmit = now;
+          }
+        }
+        progressRow.update(bytesSoFar);
+        const blob = new Blob(chunks as BlobPart[], { type: "application/zip" });
         const zipFile = new File([blob], zipName, { type: "application/zip", lastModified: Date.now() });
-        // Clear the "zipping" warning by re-rendering warnings without it.
-        // Simplest: just add a "done" hint; user dismisses old one mentally.
+        progressRow.done();
         const dt = new DataTransfer();
         dt.items.add(zipFile);
         onPickFiles(dt.files);
       } catch (e) {
+        progressRow.done();
         addWarning(`Failed to zip folder: ${(e as Error).message}`);
       }
     };
