@@ -102,6 +102,7 @@ import { site } from "../site.config";
       <p class="text-sm text-[var(--color-fg-muted)]">Send this link to the receiver:</p>
       <div class="mt-3 flex gap-2">
         <input id="share-link" type="text" readonly class="flex-1 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm" />
+        <button id="share-link-btn" class="hidden h-10 rounded-md border border-[var(--color-border)] px-4 text-sm font-medium hover:bg-[var(--color-bg-muted)]">Share</button>
         <button id="copy-link" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] transition-opacity hover:opacity-90">Copy</button>
       </div>
       <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
@@ -143,6 +144,7 @@ import { site } from "../site.config";
           </p>
           <textarea id="sender-offer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] p-3 font-mono text-xs" placeholder="Generating invite code…"></textarea>
           <div class="mt-3 flex gap-2">
+            <button id="sender-share-offer" class="hidden h-9 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)] disabled:opacity-50" disabled>Share</button>
             <button id="sender-copy-offer" class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-50" disabled>Copy invite code</button>
             <button id="sender-mark-shared" class="h-9 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)] disabled:opacity-50" disabled>I've shared it →</button>
           </div>
@@ -184,7 +186,10 @@ import { site } from "../site.config";
             Copy the code below and send it back to the sender. Connection opens automatically once they paste it.
           </p>
           <textarea id="recv-answer-blob" readonly class="w-full h-28 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 font-mono text-xs"></textarea>
-          <button id="recv-copy-answer" class="mt-3 h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Copy reply code</button>
+          <div class="mt-3 flex gap-2">
+            <button id="recv-share-answer" class="hidden h-9 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)]">Share</button>
+            <button id="recv-copy-answer" class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Copy reply code</button>
+          </div>
         </div>
       </div>
     </section>
@@ -295,6 +300,7 @@ import { site } from "../site.config";
     const senderLink = $("sender-link");
     const shareLink = $<HTMLInputElement>("share-link");
     const copyLinkBtn = $<HTMLButtonElement>("copy-link");
+    const shareLinkBtn = $<HTMLButtonElement>("share-link-btn");
     const retryPanel = $("retry-panel");
     const retryBtn = $<HTMLButtonElement>("retry-btn");
     const retryParanoidBtn = $<HTMLButtonElement>("retry-paranoid");
@@ -304,6 +310,7 @@ import { site } from "../site.config";
     const psRecv = $("paranoid-receiver");
     const senderOfferBlob = $<HTMLTextAreaElement>("sender-offer-blob");
     const senderCopyOffer = $<HTMLButtonElement>("sender-copy-offer");
+    const senderShareOffer = $<HTMLButtonElement>("sender-share-offer");
     const senderMarkShared = $<HTMLButtonElement>("sender-mark-shared");
     const psenderStep1 = $("psender-step1");
     const psenderStep2 = $("psender-step2");
@@ -315,6 +322,7 @@ import { site } from "../site.config";
     const precvStep2 = $("precv-step2");
     const recvAnswerBlob = $<HTMLTextAreaElement>("recv-answer-blob");
     const recvCopyAnswer = $<HTMLButtonElement>("recv-copy-answer");
+    const recvShareAnswer = $<HTMLButtonElement>("recv-share-answer");
     const transferPanel = $("transfer-panel");
     const dropZone = $("drop-zone");
     const fileInput = $<HTMLInputElement>("file-input");
@@ -961,6 +969,7 @@ import { site } from "../site.config";
       lockStep(precvStep1, false);
       lockStep(precvStep2, true);
       senderCopyOffer.disabled = true;
+      senderShareOffer.disabled = true;
       senderMarkShared.disabled = true;
       senderSubmitAnswer.disabled = false;
       senderSubmitAnswer.textContent = "Connect";
@@ -979,6 +988,7 @@ import { site } from "../site.config";
       const offer = await session.hostManual();
       senderOfferBlob.value = offer;
       senderCopyOffer.disabled = false;
+      senderShareOffer.disabled = false;
       senderMarkShared.disabled = false;
       setStatus("signaling", "Step 1 — share the invite code with the receiver.");
 
@@ -1180,6 +1190,32 @@ import { site } from "../site.config";
     });
 
     // ---------- Misc ----------
+    const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
+    async function tryShare(btn: HTMLButtonElement, data: ShareData, fallbackText: string, restoreLabel: string) {
+      try {
+        await navigator.share(data);
+        btn.textContent = "Shared!";
+      } catch (err: any) {
+        if (err && err.name === "AbortError") return; // user cancelled
+        // fallback to clipboard
+        try { await navigator.clipboard.writeText(fallbackText); btn.textContent = "Copied!"; } catch { return; }
+      }
+      setTimeout(() => (btn.textContent = restoreLabel), 1500);
+    }
+    if (canShare) {
+      shareLinkBtn.classList.remove("hidden");
+      senderShareOffer.classList.remove("hidden");
+      recvShareAnswer.classList.remove("hidden");
+    }
+    shareLinkBtn.addEventListener("click", () =>
+      tryShare(shareLinkBtn, { title: "Teleport invite", text: "Join my secure file transfer:", url: shareLink.value }, shareLink.value, "Share")
+    );
+    senderShareOffer.addEventListener("click", () =>
+      tryShare(senderShareOffer, { title: "Teleport invite code", text: senderOfferBlob.value }, senderOfferBlob.value, "Share")
+    );
+    recvShareAnswer.addEventListener("click", () =>
+      tryShare(recvShareAnswer, { title: "Teleport reply code", text: recvAnswerBlob.value }, recvAnswerBlob.value, "Share")
+    );
     copyLinkBtn.addEventListener("click", async () => {
       await navigator.clipboard.writeText(shareLink.value);
       copyLinkBtn.textContent = "Copied!";
