@@ -96,6 +96,7 @@ import { site } from "../site.config";
       <div class="flex items-center gap-3">
         <span id="status-dot" class="size-2.5 rounded-full bg-[var(--color-fg-subtle)]"></span>
         <span id="status-label" class="font-medium">Initializing…</span>
+        <span id="status-uptime" class="hidden text-xs tabular-nums text-[var(--color-fg-muted)]" title="Time connected"></span>
         <span id="status-role" class="ml-auto text-xs uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]"></span>
       </div>
       <p id="status-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]"></p>
@@ -390,6 +391,36 @@ import { site } from "../site.config";
     const statusLabel = $("status-label");
     const statusDetail = $("status-detail");
     const statusRole = $("status-role");
+    const statusUptime = $("status-uptime") as HTMLSpanElement;
+
+    // ---------- Connection uptime ticker ----------
+    let connectedSince = 0;
+    let uptimeTimer: number | null = null;
+    const fmtUptime = (ms: number) => {
+      const s = Math.floor(ms / 1000);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      const pad = (n: number) => String(n).padStart(2, "0");
+      return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
+    };
+    const tickUptime = () => {
+      if (!connectedSince) return;
+      statusUptime.textContent = fmtUptime(Date.now() - connectedSince);
+    };
+    const startUptime = () => {
+      if (uptimeTimer) return;
+      connectedSince = Date.now();
+      statusUptime.classList.remove("hidden");
+      tickUptime();
+      uptimeTimer = window.setInterval(tickUptime, 1000);
+    };
+    const stopUptime = () => {
+      if (uptimeTimer) { clearInterval(uptimeTimer); uptimeTimer = null; }
+      connectedSince = 0;
+      statusUptime.classList.add("hidden");
+      statusUptime.textContent = "";
+    };
     const diagGrid = $("diag-grid");
     const senderLink = $("sender-link");
     const shareLink = $<HTMLInputElement>("share-link");
@@ -773,6 +804,7 @@ import { site } from "../site.config";
       statusLabel.textContent = label;
       statusDot.style.background = color;
       statusDetail.textContent = detail;
+      if (s === "connected") startUptime(); else stopUptime();
     };
 
     /**
