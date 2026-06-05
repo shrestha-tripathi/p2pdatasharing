@@ -23,12 +23,22 @@ export interface Env {
   LOBBY: DurableObjectNamespace;
   CODES: DurableObjectNamespace;
   ALLOWED_ORIGIN: string;
-  // Cloudflare Realtime TURN credentials — set via:
-  //   npx wrangler secret put TURN_TOKEN_ID
-  //   npx wrangler secret put TURN_API_TOKEN
-  // Get them from: dash.cloudflare.com → Calls → TURN App → Create
+  // Self-hosted coturn (preferred for production). Set via:
+  //   wrangler secret put TURN_SHARED_SECRET    # static-auth-secret from /etc/turnserver.conf
+  //   wrangler secret put TURN_DOMAIN           # e.g. turn.filetransfernow.com
+  // /turn mints time-limited HMAC creds; coturn validates them server-side.
+  TURN_SHARED_SECRET?: string;
+  TURN_DOMAIN?: string;
+  // Optional Cloudflare Realtime TURN fallback (or primary if self-host not used).
+  //   wrangler secret put TURN_TOKEN_ID
+  //   wrangler secret put TURN_API_TOKEN
   TURN_TOKEN_ID?: string;
   TURN_API_TOKEN?: string;
+  // Comma-separated Origin allowlist for /turn (prevents random sites from
+  // burning your TURN bandwidth). Example:
+  //   "https://filetransfernow.com,https://www.filetransfernow.com,http://localhost:4321"
+  // Leave unset to allow any origin (only safe for STUN-only / dev).
+  ALLOWED_ORIGINS?: string;
 }
 
 const CORS_HEADERS = {
@@ -52,10 +62,12 @@ export default {
       });
     }
 
-    // TURN credential endpoint — issues short-lived creds via Cloudflare
-    // Realtime TURN. Falls back to public STUN if secrets aren't set.
+    // TURN credential endpoint — issues short-lived creds for either:
+    //   (a) self-hosted coturn via HMAC REST auth (preferred), or
+    //   (b) Cloudflare Realtime TURN (fallback), or
+    //   (c) public STUN-only (last resort if neither is configured).
     if (url.pathname === "/turn") {
-      return handleTurn(env);
+      return handleTurn(env, request);
     }
 
     // Short-code pairing routes — see worker/src/index.ts → CodeDO and
@@ -95,54 +107,126 @@ export default {
   },
 };
 
-async function handleTurn(env: Env): Promise<Response> {
+async function handleTurn(env: Env, request: Request): Promise<Response> {
   const headers = { "content-type": "application/json", ...CORS_HEADERS };
 
-  if (!env.TURN_TOKEN_ID || !env.TURN_API_TOKEN) {
-    // No TURN configured — return public STUN only.
+  // ---- Origin allowlist ----
+  // If ALLOWED_ORIGINS is configured, reject requests from any other origin.
+  // Blocks casual scraping (someone curling our /turn endpoint from a browser
+  // tab on another site). Doesn't stop curl/Node scripts that spoof Origin,
+  // but those need to know the exact value and aren't drive-by attacks.
+  if (env.ALLOWED_ORIGINS) {
+    const origin = request.headers.get("Origin");
+    const allowed = new Set(
+      env.ALLOWED_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean),
+    );
+    if (origin && !allowed.has(origin)) {
+      return new Response(JSON.stringify({ error: "forbidden" }), {
+        status: 403,
+        headers,
+      });
+    }
+  }
+
+  // ---- Mode A: self-hosted coturn via HMAC REST auth ----
+  // Preferred for production. We hold a shared secret with the coturn server;
+  // we generate a `<expiry>:<user>` username + HMAC-SHA1 credential. Coturn
+  // verifies the HMAC server-side without needing any callback. Creds expire
+  // after `ttlSeconds` so stolen ones can't be stockpiled.
+  if (env.TURN_SHARED_SECRET && env.TURN_DOMAIN) {
+    const ttlSeconds = 600; // 10 min — fits inside coturn's default refresh window
+    const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
+    const username = `${expiry}:guest`;
+
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      "raw",
+      enc.encode(env.TURN_SHARED_SECRET),
+      { name: "HMAC", hash: "SHA-1" },
+      false,
+      ["sign"],
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, enc.encode(username));
+    // btoa wants a binary string; convert Uint8Array via String.fromCharCode
+    const credential = btoa(
+      String.fromCharCode(...new Uint8Array(sig)),
+    );
+
     return new Response(
       JSON.stringify({
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-        warning: "TURN not configured — STUN only. Set TURN_TOKEN_ID + TURN_API_TOKEN secrets.",
+        iceServers: [
+          { urls: `stun:${env.TURN_DOMAIN}:3478` },
+          {
+            urls: [
+              `turn:${env.TURN_DOMAIN}:3478?transport=udp`,
+              `turn:${env.TURN_DOMAIN}:3478?transport=tcp`,
+              `turns:${env.TURN_DOMAIN}:5349?transport=tcp`,
+            ],
+            username,
+            credential,
+          },
+        ],
+        ttl: ttlSeconds,
+        provider: "self-hosted",
       }),
       { headers },
     );
   }
 
-  try {
-    // Cloudflare Realtime TURN — credentials valid for 10 minutes.
-    // Docs: https://developers.cloudflare.com/realtime/turn/
-    const res = await fetch(
-      `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN_ID}/credentials/generate-ice-servers`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${env.TURN_API_TOKEN}`,
-          "Content-Type": "application/json",
+  // ---- Mode B: Cloudflare Realtime TURN ----
+  if (env.TURN_TOKEN_ID && env.TURN_API_TOKEN) {
+    try {
+      const res = await fetch(
+        `https://rtc.live.cloudflare.com/v1/turn/keys/${env.TURN_TOKEN_ID}/credentials/generate-ice-servers`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${env.TURN_API_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ ttl: 600 }),
         },
-        body: JSON.stringify({ ttl: 600 }),
-      },
-    );
-    if (!res.ok) {
+      );
+      if (!res.ok) {
+        return new Response(
+          JSON.stringify({
+            iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+            error: `Cloudflare TURN API: ${res.status}`,
+            provider: "stun-fallback",
+          }),
+          { headers, status: 200 },
+        );
+      }
+      const data = (await res.json()) as { iceServers: RTCIceServer };
+      return new Response(
+        JSON.stringify({ ...data, provider: "cloudflare" }),
+        { headers },
+      );
+    } catch (err) {
       return new Response(
         JSON.stringify({
           iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-          error: `Cloudflare TURN API: ${res.status}`,
+          error: String(err),
+          provider: "stun-fallback",
         }),
-        { headers, status: 200 },
+        { headers },
       );
     }
-    const data = (await res.json()) as { iceServers: RTCIceServer };
-    return new Response(JSON.stringify(data), { headers });
-  } catch (err) {
-    return new Response(
-      JSON.stringify({
-        iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
-        error: String(err),
-      }),
-      { headers },
-    );
   }
+
+  // ---- Mode C: STUN-only (no TURN configured) ----
+  // Works for ~80% of home-network pairs but FAILS on symmetric NAT (most
+  // mobile carriers) and strict corporate firewalls. Set either TURN_SHARED_SECRET
+  // + TURN_DOMAIN (self-host) or TURN_TOKEN_ID + TURN_API_TOKEN (Cloudflare).
+  return new Response(
+    JSON.stringify({
+      iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+      warning:
+        "TURN not configured — STUN only. Set TURN_SHARED_SECRET+TURN_DOMAIN (self-host) or TURN_TOKEN_ID+TURN_API_TOKEN (Cloudflare).",
+      provider: "stun-only",
+    }),
+    { headers },
+  );
 }
 
 /**
