@@ -15,44 +15,128 @@ import { site } from "../site.config";
 
 const faqs = [
   {
-    q: "Is it really free? What's the catch?",
+    q: `Is it really free? What's the catch?`,
     a: `Yes — completely free, no ads, no signup, no premium tier. Since files stream directly browser-to-browser, our infrastructure cost is tiny (just a small signaling server for the WebRTC handshake). There is no upload bandwidth to pay for, no storage to maintain. You're not the product.`,
   },
   {
-    q: "How big a file can I send?",
+    q: `How big a file can I send?`,
     a: `There is no file size limit. We've successfully tested transfers above 100 GB. The receiver's file streams directly to their local disk using the Origin Private File System (OPFS), so RAM stays flat even mid-100GB transfer. Your real limit is your network speed and free disk space on the receiving device.`,
   },
   {
-    q: "Does it work between two different networks (different WiFi, different cities)?",
+    q: `How do I send 20 GB for free?`,
+    a: `${site.shortName} sends files of any size directly between two devices over an encrypted peer-to-peer WebRTC connection. There is no upload limit, no account, and no server hosting your file — 20 GB, 40 GB, or 100 GB transfers all work the same way: open the site on both devices, scan the QR code, and drop your files. Speed is limited only by your network.`,
+  },
+  {
+    q: `How can I transfer 100 GB for free?`,
+    a: `Use a peer-to-peer browser tool like ${site.shortName}. Because the file streams directly from sender to receiver, there is no cloud storage cost and no file-size cap. Keep both browser tabs open until the transfer finishes. For very large transfers, both devices on the same Wi-Fi network will see the fastest speeds.`,
+  },
+  {
+    q: `How do I transfer a 60 GB file for free?`,
+    a: `Open ${site.shortName} on both the sending and receiving device. Pair them via QR code or a short link, drop your 60 GB file into the sender's browser, and it streams directly to the receiver — no upload to any server, no 2 GB free-tier cap, no signup. Just leave both tabs open until the transfer finishes.`,
+  },
+  {
+    q: `How do I transfer a 30 GB file for free?`,
+    a: `Same flow as any large file with a P2P tool: open the site on both devices, pair, drop the file, wait for direct transfer to complete. There's no file-size ceiling and no account required.`,
+  },
+  {
+    q: `How do I transfer an 8 GB file online?`,
+    a: `Peer-to-peer browser transfer is the simplest path. Cloud-upload services usually cap free transfers at 2 GB, so an 8 GB file forces a paid plan or splitting the file. With ${site.shortName}, the 8 GB file streams directly to the recipient — no signup, no cap.`,
+  },
+  {
+    q: `How do I transfer a 3 GB file for free?`,
+    a: `With ${site.shortName}, drag the 3 GB file into the browser after pairing the two devices. The file moves directly device-to-device over an encrypted WebRTC channel; no cloud upload is required.`,
+  },
+  {
+    q: `How do I transfer a 2 GB file over the internet for free?`,
+    a: `A peer-to-peer browser tool handles 2 GB transfers in one shot, with no signup and no upload to any server. Cloud services like WeTransfer technically allow 2 GB on the free tier, but they still upload the file to their servers first.`,
+  },
+  {
+    q: `What is the best free large-file transfer service?`,
+    a: `For privacy and unlimited size, a peer-to-peer browser tool is best — your file never touches a server. Cloud upload services (WeTransfer, Smash, etc.) cap free transfers at 2–10 GB and require uploading first. ${site.shortName} has no cap and no upload step.`,
+  },
+  {
+    q: `What is the best free file transfer site?`,
+    a: `A peer-to-peer browser tool like ${site.shortName} is the best free option when you care about privacy, file size, or speed. It works in any modern browser, requires no signup, and has no transfer-size limit. For one-off small files where convenience matters most, services like Smash or WeTransfer still work but cap free uploads and store your file on their servers.`,
+  },
+  {
+    q: `What is a good free alternative to WeTransfer?`,
+    a: `A peer-to-peer browser transfer tool is the no-limit alternative. Unlike WeTransfer's 2 GB free cap (or 5 GB on the free plan as of 2025), peer-to-peer tools have no size limit because nothing is being uploaded to a server — files stream directly device-to-device.`,
+  },
+  {
+    q: `What's a browser-based alternative to Snapdrop or Xender?`,
+    a: `Snapdrop and Xender both work for cross-device transfer, but each has limits: Snapdrop requires both devices on the same network, and Xender requires installing an app. A WebRTC-based browser tool like ${site.shortName} works both locally (LAN) and across the internet, with no app install on either device.`,
+  },
+  {
+    q: `Does it work between two different networks (different WiFi, different cities)?`,
     a: `Yes — this is exactly what ${site.shortName} is built for. Unlike AirDrop, LocalSend, or Snapdrop, it uses WebRTC with STUN/TURN NAT traversal, so it works between any two browsers on the public internet. Sender on home WiFi in Mumbai, receiver on coffee-shop WiFi in Berlin? Works. Sender on 5G, receiver behind a corporate firewall? Also works.`,
   },
   {
-    q: "Is the file actually encrypted? Can you read it?",
+    q: `Is the file actually encrypted? Can you read it?`,
     a: `Yes, encrypted end-to-end with DTLS 1.3 — the same standard used by Google Meet and Discord. Encryption keys are negotiated directly between the two browsers and never leave them. Even if your data temporarily routes through our TURN relay (for tricky firewalls), the relay only sees encrypted ciphertext. We physically cannot decrypt your stream.`,
   },
   {
-    q: "What happens if the connection drops mid-transfer?",
+    q: `What happens if the connection drops mid-transfer?`,
     a: `${site.shortName} resumes from the exact byte where it left off — not from zero. The receiver's partial file is persisted to disk via OPFS, and the sender re-streams only the missing bytes. We adaptively wait up to 90 seconds for slow networks to reconnect before giving up. Most competitors restart the entire transfer.`,
   },
   {
-    q: "Why is my transfer slower than my internet speed?",
+    q: `Why is my transfer slower than my internet speed?`,
     a: `The speed is bounded by the slower of: sender's upload, receiver's download, or any TURN relay hop. Typical WebRTC throughput is 50-300 Mbit/s on a clean network. Things that slow it down: corporate firewalls forcing TURN relay, busy WiFi, weak signal, browser CPU on weak devices. Fix: use cabled internet on at least one side, or put both devices on the same WiFi (then it's near-LAN speed).`,
   },
   {
-    q: "Can I send an entire folder?",
+    q: `Can I send an entire folder?`,
     a: `Yes — drop a folder onto the upload area and ${site.shortName} will preserve the folder structure on the receiving side. For very large folders, zipping first can sometimes be faster because it avoids per-file handshake overhead, but it's not required.`,
   },
   {
-    q: "Do I need to install anything? Does the receiver?",
+    q: `Do I need to install anything? Does the receiver?`,
     a: `No install on either side — it runs entirely in the browser. You can optionally install it as a Progressive Web App (PWA) on Android, iOS, Windows, or macOS for a one-click app icon, but the full feature set works directly from the browser tab.`,
   },
   {
-    q: "What browsers are supported?",
+    q: `What browsers are supported?`,
     a: `Any modern browser with WebRTC: Chrome 80+, Edge 80+, Firefox 78+, Safari 15+, Opera, Brave, Vivaldi, Arc. Mobile browsers on Android and iOS 15+ are also supported. Safari has historically been the weakest for very large files; Chrome and Firefox are best for 10GB+ transfers.`,
   },
   {
-    q: "Can I pair devices I use often so I don't need to scan a QR every time?",
+    q: `Can I pair devices I use often so I don't need to scan a QR every time?`,
     a: `Yes — ${site.shortName} supports persistent device pairing. After your first QR scan, both devices remember each other (up to 3 paired devices per account, all stored locally — never on a server). Next time you open the app, you can transfer with one click. You can rename your devices and revoke pairings any time.`,
+  },
+  {
+    q: `Can I send files between phone and laptop without an app?`,
+    a: `Yes. ${site.shortName} works entirely in the browser on iOS, Android, Windows, macOS, and Linux. No app install or sign-up. Open the site on both devices, share the room link or scan the QR code, and start transferring.`,
+  },
+  {
+    q: `How do I transfer a file from iPhone to PC?`,
+    a: `The easiest no-cable, no-app method is a peer-to-peer browser tool. Open ${site.shortName} on your iPhone (Safari) and your PC (any modern browser), pair via QR code, and the file transfers directly. No iTunes, no iCloud, no AirDrop needed.`,
+  },
+  {
+    q: `How do I do PC-to-PC file transfer over the internet?`,
+    a: `Open a peer-to-peer browser file-transfer tool on both PCs. Share the join link or QR code with the second device, drop the files, and they stream directly over the internet — no USB, no cloud upload, no account.`,
+  },
+  {
+    q: `Can I transfer files between Android and Mac without an app?`,
+    a: `Yes. Android File Transfer (Google's official utility) is one option but requires installing the app on the Mac. A browser-based peer-to-peer tool removes the app step entirely: open the same web page on the Android device and the Mac, pair, and transfer — works in any modern browser on both ends.`,
+  },
+  {
+    q: `Can I transfer files locally over Wi-Fi without an app?`,
+    a: `Yes. When both devices are on the same Wi-Fi network, ${site.shortName} routes the WebRTC connection directly over the LAN, giving near-instant transfer speeds with no internet upload — and still no app install required.`,
+  },
+  {
+    q: `How do I transfer a large file to someone without uploading it?`,
+    a: `Use peer-to-peer transfer in the browser. After pairing the two devices via QR code or short link, the file streams directly from sender to receiver — it is never uploaded to a cloud service.`,
+  },
+  {
+    q: `How do I send large files securely without using cloud storage?`,
+    a: `Use a peer-to-peer browser tool that opens an end-to-end encrypted WebRTC channel between sender and receiver. The file never lands on any cloud server, so there's nothing for an attacker (or a third-party service) to read after the transfer ends.`,
+  },
+  {
+    q: `How does P2P file transfer work in a browser?`,
+    a: `A peer-to-peer browser tool uses WebRTC to open a direct encrypted data channel between the two browsers. A small signaling server only helps the two devices find each other; once connected, file data flows directly between them and never touches any server.`,
+  },
+  {
+    q: `What is file transfer software?`,
+    a: `File transfer software moves files between devices or systems. It ranges from old protocols like FTP/SFTP, to enterprise "Managed File Transfer" (MFT) platforms with auditing and scheduling, to consumer cloud services (WeTransfer, Dropbox), to peer-to-peer browser tools like ${site.shortName} that move files directly between two devices without any server.`,
+  },
+  {
+    q: `What is managed file transfer (MFT)?`,
+    a: `Managed File Transfer (MFT) is enterprise-grade file transfer software that adds auditing, scheduling, encryption, and protocol translation on top of basic file transfer. It's typically used by businesses moving data between systems — not by individuals sending a single large file to someone, where a peer-to-peer browser tool is simpler and faster.`,
   },
 ];
 
@@ -75,8 +159,8 @@ const faqSchema = {
 ---
 
 <Layout
-  title="FAQ — common questions about peer-to-peer file transfer"
-  description={`Answers to common questions about ${site.shortName}: file size limits, encryption, cross-network transfers, browser support, resume after disconnect, and how peer-to-peer file sharing actually works.`}
+  title="FAQ — file transfer questions answered (31 Q&A)"
+  description={`31 answers about sending and receiving large files: how to send 20GB, 100GB, or any size for free; iPhone-to-PC and Android-to-Mac transfer without apps; how peer-to-peer file transfer works in the browser; ${site.shortName} vs WeTransfer, Smash, Snapdrop, and Xender; encryption, resume after disconnect, and supported browsers.`}
   jsonLd={[faqSchema]}
 >
   <Nav />
@@ -87,8 +171,9 @@ const faqSchema = {
       Frequently asked questions
     </h1>
     <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
-      Quick answers about how {site.shortName} works, what makes it different from
-      cloud-upload tools like WeTransfer, and how to get the best transfer speed.
+      31 answers about how {site.shortName} works, what makes browser-to-browser
+      file transfer different from cloud-upload tools like WeTransfer and Smash,
+      and how to get the best transfer speed.
     </p>
 
     <hr class="my-12 border-[var(--color-border)]" />
