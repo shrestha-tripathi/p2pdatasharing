@@ -1,6 +1,7 @@
-// One-shot: generate PWA icons (192, 512, 512-maskable) from favicon.svg.
-// Run via `node scripts/gen-icons.mjs`.
+// One-shot: generate PWA icons (192, 512, 512-maskable) + favicon.ico
+// from favicon.svg. Run via `node scripts/gen-icons.mjs`.
 import sharp from "sharp";
+import pngToIco from "png-to-ico";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const svg = readFileSync("public/favicon.svg");
@@ -25,8 +26,19 @@ const renderIcon = async (size, { maskable = false } = {}) => {
   return composed;
 };
 
-// Re-color the SVG to white so it renders on the black bg
-const whiteSvg = svg.toString().replace(/fill: #000/g, "fill: #fff").replace(/fill=\"#000\"/g, 'fill="#fff"');
+// Re-color the SVG so it renders as white on the black bg. The favicon.svg
+// uses #0a0a0a (matching the dark-theme foreground color), and theme-adaptive
+// CSS swaps stroke/fill to #fafafa via prefers-color-scheme. The CSS doesn't
+// apply when sharp rasterizes the SVG, so we patch the source colors directly
+// before rendering. Handles both stroke= and fill= attrs (the portal spiral
+// is a stroked path, the paper plane is filled).
+const whiteSvg = svg
+  .toString()
+  .replace(/stroke=\"#0a0a0a\"/g, 'stroke="#fafafa"')
+  .replace(/fill=\"#0a0a0a\"/g, 'fill="#fafafa"')
+  // Backward-compat with any leftover #000 references (legacy)
+  .replace(/stroke=\"#000\"/g, 'stroke="#fafafa"')
+  .replace(/fill=\"#000\"/g, 'fill="#fafafa"');
 writeFileSync("/tmp/icon-white.svg", whiteSvg);
 
 const renderWithColor = async (size, { maskable = false } = {}) => {
@@ -52,3 +64,14 @@ writeFileSync("public/icon-512.png", await renderWithColor(512));
 writeFileSync("public/icon-512-maskable.png", await renderWithColor(512, { maskable: true }));
 writeFileSync("public/apple-touch-icon.png", await renderWithColor(180));
 console.log("✓ Icons generated: 192, 512, 512-maskable, apple-touch (180)");
+
+// favicon.ico — multi-resolution ICO container (16, 32, 48) so Windows,
+// older browsers, and pinned tabs all get a crisp render. We re-use the
+// black-bg + white-icon look so the favicon stays visible regardless of
+// the browser's tab background color.
+const ico16 = await renderWithColor(16);
+const ico32 = await renderWithColor(32);
+const ico48 = await renderWithColor(48);
+const ico = await pngToIco([ico16, ico32, ico48]);
+writeFileSync("public/favicon.ico", ico);
+console.log(`✓ favicon.ico generated (multi-res: 16/32/48, ${(ico.length / 1024).toFixed(1)} KB)`);
