@@ -517,8 +517,19 @@ import { site } from "../site.config";
       <div id="drop-zone" class="hidden">
         <label
           for="file-input"
-          class="block cursor-pointer rounded-lg border-2 border-dashed border-[var(--color-border-strong)] p-10 text-center transition-colors hover:bg-[var(--color-bg-muted)]"
+          id="drop-zone-label"
+          class="drop-zone-label group block cursor-pointer rounded-xl border-2 border-dashed border-[var(--color-border-strong)] py-12 px-6 text-center transition-all duration-200 hover:bg-[var(--color-bg-muted)] hover:border-[var(--color-fg-muted)]"
         >
+          <!--
+            Big "+" icon as the empty-state focal point. Pulses on idle,
+            grows + glows when a file is dragged over. Matches the
+            ToffeeShare/WeTransfer "drop bull's-eye" pattern.
+          -->
+          <div class="drop-plus mx-auto mb-4 flex items-center justify-center size-16 rounded-full border-2 border-[var(--color-border-strong)] text-[var(--color-fg-muted)] transition-all duration-200">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </div>
           <p class="text-lg font-medium">Drop files or click to pick</p>
           <p class="mt-1 text-sm text-[var(--color-fg-muted)]">Any size. Multiple files OK. Streamed directly to the receiver.</p>
           <input id="file-input" type="file" multiple class="hidden" />
@@ -2575,6 +2586,37 @@ import { site } from "../site.config";
     });
 
     pickFolderBtn.addEventListener("click", () => folderInput.click());
+
+    // Drop-zone visual feedback: pulse + glow when a file is dragged over.
+    // We use a counter because dragenter/dragleave fire for every child element,
+    // not just the outer container — naive add/remove would flicker.
+    const dropZoneLabel = document.getElementById("drop-zone-label");
+    if (dropZoneLabel) {
+      let dragDepth = 0;
+      const isFileDrag = (e: DragEvent) =>
+        Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+      document.addEventListener("dragenter", (e) => {
+        if (role !== "sender") return;
+        if (!isFileDrag(e)) return;
+        dragDepth++;
+        dropZoneLabel.classList.add("is-dragover");
+      });
+      document.addEventListener("dragleave", (e) => {
+        if (role !== "sender") return;
+        if (!isFileDrag(e)) return;
+        dragDepth = Math.max(0, dragDepth - 1);
+        if (dragDepth === 0) dropZoneLabel.classList.remove("is-dragover");
+      });
+      // Reset on drop or window leave — covers edge cases where dragleave fires
+      // in a non-symmetric way (drop on an unrelated target, escape key, etc.).
+      const resetDragState = () => {
+        dragDepth = 0;
+        dropZoneLabel.classList.remove("is-dragover");
+      };
+      document.addEventListener("drop", resetDragState);
+      window.addEventListener("blur", resetDragState);
+    }
 
     document.addEventListener("dragover", (e) => e.preventDefault());
     document.addEventListener("drop", async (e) => {

@@ -150,3 +150,54 @@ html[data-theme="dark"] .astro-code span {
   font-weight: var(--shiki-dark-font-weight) !important;
   text-decoration: var(--shiki-dark-text-decoration) !important;
 }
+
+/* ============================================================
+   Drop-zone empty-state polish
+   ============================================================
+   The big "+" inside the sender's drop zone (#drop-zone-label):
+   - Idle: subtle slow pulse on the "+" disc, dashed border behind it.
+   - Hover: disc tints toward the foreground, dashed border darkens.
+   - Dragover: "+" disc + label switch to the accent color, scale up,
+     wide soft glow underneath — matches ToffeeShare's drop bull's-eye.
+
+   Pure CSS — JS only toggles .is-dragover on #drop-zone-label.
+*/
+
+/* Idle pulse — runs forever while empty. */
+@keyframes drop-plus-idle-pulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+}
+
+#drop-zone-label .drop-plus {
+  animation: drop-plus-idle-pulse 2.6s ease-in-out infinite;
+}
+
+#drop-zone-label:hover .drop-plus {
+  border-color: var(--color-fg-muted);
+  color: var(--color-fg);
+}
+
+/* Dragover state — added by JS on dragenter, removed on dragleave/drop. */
+#drop-zone-label.is-dragover {
+  border-color: var(--color-accent);
+  background-color: color-mix(in oklab, var(--color-accent) 8%, transparent);
+  transform: scale(1.005);
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-accent) 14%, transparent);
+}
+
+#drop-zone-label.is-dragover .drop-plus {
+  border-color: var(--color-accent);
+  background-color: color-mix(in oklab, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+  transform: scale(1.15);
+  box-shadow: 0 0 32px 4px color-mix(in oklab, var(--color-accent) 35%, transparent);
+  animation: none;
+}
+
+/* Honour reduced motion — drop the pulse + transforms but keep colors. */
+@media (prefers-reduced-motion: reduce) {
+  #drop-zone-label .drop-plus { animation: none; }
+  #drop-zone-label.is-dragover,
+  #drop-zone-label.is-dragover .drop-plus { transform: none; }
+}
