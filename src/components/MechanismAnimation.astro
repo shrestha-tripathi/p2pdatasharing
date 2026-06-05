@@ -549,7 +549,96 @@
     35%      { opacity: 0; transform: translateX(-50%) translateY(-6px); }
   }
 
+  /*
+    Desktop-only keyframes — defined at top level (not inside @media) so
+    they're guaranteed registered globally; the @media block below just
+    swaps `animation-name` to point at them on ≥641px viewports.
+    Defining @keyframes inside @media is technically legal but has known
+    cross-browser quirks (Firefox treats them as global; Chrome scopes
+    them). Hoisting avoids the inconsistency entirely.
+  */
+  @keyframes packet-fly-desktop {
+    0%   { opacity: 0; left: 0%;   top: 0px;   }
+    10%  { opacity: 1; left: 10%;  top: -22px; }
+    50%  { opacity: 1; left: 50%;  top: -52px; }
+    90%  { opacity: 1; left: 90%;  top: -22px; }
+    100% { opacity: 0; left: 100%; top: 0px;   }
+  }
+
+  @keyframes enc-pop-desktop {
+    0%, 25%   { opacity: 0; transform: translate(-50%, -50%) translateY(-46px) translateZ(40px) scale(0.85); }
+    35%       { opacity: 1; transform: translate(-50%, -50%) translateY(-58px) translateZ(40px) scale(1); }
+    65%       { opacity: 1; transform: translate(-50%, -50%) translateY(-58px) translateZ(40px) scale(1); }
+    78%       { opacity: 0; transform: translate(-50%, -50%) translateY(-62px) translateZ(40px) scale(0.92); }
+    100%      { opacity: 0; }
+  }
+
   /* ---------- Responsive ---------- */
+  /*
+    Desktop polish (≥641px): the mechanism animation was originally tuned
+    on a narrow mobile viewport. Without these overrides the wider canvas
+    flattens the arc, shrinks the cards relative to whitespace, and makes
+    the cloud float orphaned. This block ONLY targets desktop and is fully
+    contained — to revert, delete this `@media (min-width: 641px)` block.
+    Mobile uses the `max-width: 640px` block below; no rules in this block
+    can affect viewports under 641px.
+  */
+  @media (min-width: 641px) {
+    /* Taller stage = vertical room for the arc to bend and the 3D tilt to
+       register. 1.8/1 ratio gives ~510px height at 920px width — enough
+       drama without dominating the fold. */
+    .mechanism-stage {
+      aspect-ratio: 1.8 / 1;
+      min-height: 380px;
+    }
+
+    /* Bigger cards so they read as the primary subjects, not stranded
+       postage stamps. Caps still in play so they don't go cartoon-large
+       on ultra-wide. */
+    .device {
+      width: 26%;
+      min-width: 200px;
+      max-width: 280px;
+    }
+
+    /* Pull cards in slightly from the edges — gives the wire a bit more
+       room to curve and keeps the composition tight. */
+    .device.sender   { left: 4%; }
+    .device.receiver { right: 4%; }
+
+    /* Match wire/packet-stream window to the new device positions so the
+       arc spans from card-edge to card-edge instead of falling short. */
+    .wire,
+    .packet-stream {
+      left: 28%;
+      right: 28%;
+      width: 44%;
+      height: 240px;
+    }
+
+    /* Lift the packet arc apex so the curve reads even across a wider
+       span. Mobile values would visually flatten to a near-straight line
+       at desktop dimensions. Keyframes hoisted above this @media block. */
+    .packet {
+      animation-name: packet-fly-desktop;
+    }
+
+    /* Pull cloud closer to the cards so it feels integrated, not orphaned
+       above the action. */
+    .cloud-server {
+      top: 4px;
+      padding: 9px 16px 11px;
+    }
+
+    /* Bump encryption badge slightly so it sits visually centred on the
+       new, higher arc apex. Uses a dedicated `-desktop` keyframe so the
+       mobile `enc-pop` definition stays untouched globally. */
+    .encryption-badge {
+      transform: translate(-50%, -50%) translateY(-58px) translateZ(40px);
+      animation-name: enc-pop-desktop;
+    }
+  }
+
   @media (max-width: 640px) {
     .mechanism-stage {
       aspect-ratio: 1.5 / 1;
