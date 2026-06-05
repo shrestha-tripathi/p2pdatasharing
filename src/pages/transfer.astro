@@ -1255,6 +1255,19 @@ import { site } from "../site.config";
       warnings.appendChild(el);
     };
 
+    /**
+     * Neutral / progress-info banner — same machinery as addWarning but
+     * accent-colored. Used for "Reconnecting over new network…" style
+     * messages where nothing is broken yet.
+     */
+    const addInfo = (msg: string) => {
+      const el = document.createElement("div");
+      el.className =
+        "rounded-md border border-[var(--color-accent)] bg-[color-mix(in_srgb,var(--color-accent)_10%,transparent)] p-3 text-sm";
+      el.textContent = msg;
+      warnings.appendChild(el);
+    };
+
     const lockStep = (el: HTMLElement, locked: boolean) => {
       if (locked) {
         el.classList.add("opacity-40", "pointer-events-none");
@@ -1654,6 +1667,24 @@ import { site } from "../site.config";
               }
             }
           }
+        }
+        if (state === "disconnected") {
+          // Safety-net trigger for ICE restart — if the OS-level
+          // online/connectionchange listeners missed it (e.g. silent NAT
+          // timeout where the network never actually changed), the PC
+          // is our last signal that the path is dead. Give it a 2s
+          // grace in case it self-recovers, then restart ICE if still
+          // disconnected. Sender-only / live-channel guards are in
+          // maybeRestartIce itself.
+          setTimeout(() => {
+            if (
+              session &&
+              session.currentRole === "sender" &&
+              session.peer.connectionState === "disconnected"
+            ) {
+              maybeRestartIce("disconnected-state");
+            }
+          }, 2_000);
         }
         if (state === "failed") {
           // Hard failure recovery — there are three distinct paths:
@@ -3760,6 +3791,55 @@ import { site } from "../site.config";
         addWarning("Tab moved to background — transfer may slow until you return.");
       }
     });
+
+    // ---------- Network-change auto-recovery (commit 2/3) ----------
+    // When the OS swaps Wi-Fi ↔ cellular (or any other connectivity change),
+    // the underlying UDP socket the WebRTC peer is using dies. WebRTC's
+    // built-in fix is ICE restart: re-gather candidates over the new path
+    // while the data channel stays alive on the same RTCPeerConnection.
+    //
+    // We have three triggers (defense in depth, gated by a 5s cooldown):
+    //   1. window.online       — fastest signal, fires before PC notices
+    //   2. navigator.connection.change (Chromium) — wifi→cellular handoffs
+    //      where both endpoints stay "online"
+    //   3. peer state === "disconnected" (2s grace) — safety net if the
+    //      OS signals miss
+    //
+    // Sender-only — receiver auto-handles the renegotiated offer via the
+    // existing ws.onmessage "offer" branch. restartIce() itself is a
+    // no-op for receivers and paranoid sessions, but we still gate at
+    // the call site to avoid noise in the logs / banners.
+    let lastIceRestartAt = 0;
+    const ICE_RESTART_COOLDOWN_MS = 5_000;
+    const maybeRestartIce = (reason: string) => {
+      if (!session) return;
+      if (session.currentRole !== "sender") return;
+      if (!isChannelLive()) return;
+      const now = Date.now();
+      if (now - lastIceRestartAt < ICE_RESTART_COOLDOWN_MS) return;
+      lastIceRestartAt = now;
+      addInfo(`Network change detected (${reason}) — reconnecting…`);
+      void session.restartIce();
+    };
+
+    window.addEventListener("online", () => maybeRestartIce("online"));
+    window.addEventListener("offline", () => {
+      if (isChannelLive()) {
+        addWarning("You're offline. Will reconnect when network returns.");
+      }
+    });
+
+    // Chromium / Android — fires on type changes (wifi → 4g) even when
+    // both endpoints stay "online" (e.g. mobile handoff between APs).
+    // No-op on Safari / Firefox — navigator.connection is unavailable.
+    const netConn = (navigator as Navigator & {
+      connection?: { effectiveType?: string; addEventListener?: (k: string, h: () => void) => void };
+    }).connection;
+    if (netConn && typeof netConn.addEventListener === "function") {
+      netConn.addEventListener("change", () =>
+        maybeRestartIce(`type=${netConn.effectiveType ?? "?"}`),
+      );
+    }
 
     // ---------- Background-pause banner (layer 2) ----------
     // Tracks tab visibility: if the tab was hidden for >2s while a transfer
