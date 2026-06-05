@@ -364,6 +364,35 @@ import { site } from "../site.config";
         <div id="qr-canvas-box" class="rounded-lg bg-white p-3 border border-[var(--color-border)]"></div>
         <p class="text-xs text-[var(--color-fg-subtle)]">Scan with your phone camera</p>
       </div>
+
+      <!--
+        Short-code pairing block — sits below the QR. Receiver types the
+        4-char code on their device → CodeDO returns the same roomId →
+        handshake proceeds over the existing room. See
+        docs/specs/local-network-code-pairing.md.
+
+        Mint-always policy: code appears on role-boot, in parallel with QR.
+        Countdown ticks down; at 0s we auto-mint a fresh code. On peer
+        connect the block fades and the countdown stops.
+      -->
+      <div id="pair-code-wrap" class="hidden mt-5 pt-5 border-t border-[var(--color-border)] flex flex-wrap items-center gap-x-5 gap-y-3">
+        <div class="flex items-center gap-3">
+          <span class="text-xs uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Or pair with code</span>
+          <code
+            id="pair-code"
+            class="font-mono text-2xl font-semibold tracking-[0.35em] text-[var(--color-fg)] select-all"
+            aria-label="4-character pairing code"
+          >····</code>
+        </div>
+        <span id="pair-code-status" class="text-xs text-[var(--color-fg-subtle)]">expires in 1:00</span>
+        <button
+          id="pair-code-copy"
+          type="button"
+          class="text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] underline disabled:opacity-40 disabled:no-underline"
+          disabled
+        >Copy code</button>
+      </div>
+
       <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
         Keep this tab open. Once the receiver loads the link, you can drop files.
       </p>
@@ -681,6 +710,7 @@ import { site } from "../site.config";
     } from "../lib/devicePairs";
     import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
     import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
+    import { mintCode } from "../lib/pairCode";
     import {
       trackBackgroundTransfer,
       untrackBackgroundTransfer,
@@ -752,6 +782,12 @@ import { site } from "../site.config";
     const qrToggleLabel = $("qr-toggle-label");
     const qrWrap = $("qr-wrap");
     const qrCanvasBox = $("qr-canvas-box");
+    // Short-code pairing — refs live alongside QR since they're rendered
+    // together inside #sender-link. See sender pair-code block below.
+    const pairCodeWrap = $("pair-code-wrap");
+    const pairCodeEl = $("pair-code");
+    const pairCodeStatus = $("pair-code-status");
+    const pairCodeCopy = $<HTMLButtonElement>("pair-code-copy");
     const retryPanel = $("retry-panel");
     const retryBtn = $<HTMLButtonElement>("retry-btn");
     const retryParanoidBtn = $<HTMLButtonElement>("retry-paranoid");
@@ -1708,6 +1744,9 @@ import { site } from "../site.config";
           senderLink.classList.add("hidden");
           retryPanel.classList.add("hidden");
           paranoidPanel.classList.add("hidden");
+          // Stop the pair-code countdown — peer is connected, code no longer needed.
+          // (senderLink hides the wrapper visually; this clears the timer.)
+          hidePairCode();
           // Successful link — re-arm one-shot auto-recovery for next failure.
           autoReconnectAttempted = false;
           // Surface the manual-disconnect button on every successful connect.
@@ -2715,6 +2754,105 @@ import { site } from "../site.config";
       }
     };
 
+    // ─── Sender-side short-code pairing ───────────────────────────────
+    // Mint a code immediately on sender-role boot (parallel with QR), display
+    // alongside the link/QR with a live countdown, auto-mint a fresh code
+    // when the TTL elapses. Stops on peer connect (hidePairCode).
+    //
+    // All failure paths are non-fatal — sender still has link + QR. We
+    // never throw out of these helpers.
+    let pairCodeRoomId = "";
+    let pairCodeExpiresAt = 0;
+    let pairCodeTimer: ReturnType<typeof setInterval> | null = null;
+    let pairCodeMinting = false;
+
+    const clearPairCodeTimer = () => {
+      if (pairCodeTimer !== null) {
+        clearInterval(pairCodeTimer);
+        pairCodeTimer = null;
+      }
+    };
+
+    const formatCountdown = (ms: number): string => {
+      const s = Math.max(0, Math.ceil(ms / 1000));
+      const m = Math.floor(s / 60);
+      const sec = s % 60;
+      return `${m}:${String(sec).padStart(2, "0")}`;
+    };
+
+    const renderPairCodeTick = () => {
+      const remaining = pairCodeExpiresAt - Date.now();
+      if (remaining <= 0) {
+        pairCodeStatus.textContent = "refreshing…";
+        return false;
+      }
+      pairCodeStatus.textContent = `expires in ${formatCountdown(remaining)}`;
+      return true;
+    };
+
+    const startPairCodeCountdown = () => {
+      clearPairCodeTimer();
+      renderPairCodeTick();
+      pairCodeTimer = setInterval(() => {
+        const alive = renderPairCodeTick();
+        if (!alive) {
+          // TTL elapsed — auto-mint a fresh code so the sender never sees a dead one.
+          clearPairCodeTimer();
+          void refreshPairCode();
+        }
+      }, 1000);
+    };
+
+    const refreshPairCode = async () => {
+      if (!pairCodeRoomId || pairCodeMinting) return;
+      pairCodeMinting = true;
+      try {
+        const result = await mintCode(site.signalingUrl, pairCodeRoomId);
+        if (!result) {
+          // Soft fail: hide the block, keep QR/link working.
+          pairCodeStatus.textContent = "unavailable — use the link or QR";
+          pairCodeEl.textContent = "—";
+          pairCodeCopy.disabled = true;
+          return;
+        }
+        pairCodeEl.textContent = result.code;
+        pairCodeExpiresAt = result.expiresAt;
+        pairCodeCopy.disabled = false;
+        startPairCodeCountdown();
+      } finally {
+        pairCodeMinting = false;
+      }
+    };
+
+    const showPairCode = async (roomId: string) => {
+      pairCodeRoomId = roomId;
+      pairCodeWrap.classList.remove("hidden");
+      pairCodeEl.textContent = "····";
+      pairCodeStatus.textContent = "generating…";
+      pairCodeCopy.disabled = true;
+      await refreshPairCode();
+    };
+
+    const hidePairCode = () => {
+      clearPairCodeTimer();
+      pairCodeWrap.classList.add("hidden");
+      pairCodeRoomId = "";
+      pairCodeExpiresAt = 0;
+    };
+
+    pairCodeCopy.addEventListener("click", async () => {
+      const code = pairCodeEl.textContent?.trim() ?? "";
+      if (!code || code === "····" || code === "—") return;
+      try {
+        await navigator.clipboard.writeText(code);
+        const prev = pairCodeCopy.textContent;
+        pairCodeCopy.textContent = "Copied!";
+        setTimeout(() => { pairCodeCopy.textContent = prev || "Copy code"; }, 1500);
+      } catch {
+        addWarning("Couldn't copy — select the code manually instead.");
+      }
+    });
+
     qrToggle.addEventListener("click", async () => {
       if (!qrWrap.classList.contains("hidden")) {
         qrWrap.classList.add("hidden");
@@ -2749,6 +2887,10 @@ import { site } from "../site.config";
       const url = `${location.origin}${import.meta.env.BASE_URL}transfer?r=${room}`;
       shareLink.value = url;
       senderLink.classList.remove("hidden");
+      // Fire short-code mint in parallel with QR — both render into the
+      // share panel. Mint is non-blocking; if the Worker is unreachable the
+      // pair-code block degrades silently and link/QR keep working.
+      void showPairCode(room);
       // Await QR render so we know the canvas is mounted, then scroll the QR
       // into view so another device can scan it without the sender having to
       // align their screen. Centred so the code is roughly mid-viewport on
@@ -3341,6 +3483,9 @@ import { site } from "../site.config";
       senderLink.classList.add("hidden");
       retryPanel.classList.add("hidden");
       paranoidPanel.classList.add("hidden");
+      // Reset pair-code state — any prior timer is cleared so role-switching
+      // doesn't leak intervals; a fresh mint happens via bootAutoSender.
+      hidePairCode();
       // Reset pending queue UI (but only if switching role — preserve on paranoid toggle re-boot)
       // Easiest: just clear it. Re-picking files takes one tap.
       revokeThumbs(pendingQueue);
