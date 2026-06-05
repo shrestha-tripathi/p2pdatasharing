@@ -73,6 +73,33 @@ export interface RetryStatus {
 }
 
 export interface TransferEvents {
+  /**
+   * Sender batch enqueue — fired synchronously for every file the moment
+   * sendMultiple* enters its loop, before any meta frame goes on the wire.
+   * Lets the UI render "queued" rows with cancel buttons for files that
+   * haven't started yet (so the user can drop file 5 of a 5-file batch
+   * mid-transfer). The same id later flows into sendStart when that
+   * file's turn comes up.
+   */
+  sendQueued: {
+    id: string;
+    name: string;
+    size: number;
+    /** 1-based position within this batch. */
+    position: number;
+    /** Total files in this batch. */
+    total: number;
+    /** Folder-relative path if the file came from a folder pick. */
+    path?: string;
+  };
+  /**
+   * A queued file was cancelled before its turn came up. Distinct from
+   * sendCancelled (which fires for files that were actively sending) so
+   * the UI can use slightly different copy if it wants ("Cancelled before
+   * sending" vs "Cancelled mid-transfer"). For most UIs treating them
+   * the same is fine.
+   */
+  sendQueueCancelled: { id: string; name: string };
   sendStart: FileMeta & { resumedFrom?: number };
   sendProgress: TransferProgress;
   sendComplete: FileMeta;
@@ -258,10 +285,16 @@ export class FileTransfer {
    * @param path       Optional folder-relative path (e.g. "MyPhotos/2024/img.jpg").
    *                   Threaded into FileMeta so the receiver can recreate
    *                   the directory tree on Save All. Omit for plain
-   *                   single-file picks. */
-  async send(file: File, path?: string) {
+   *                   single-file picks.
+   * @param presetId   Optional pre-minted UUID for this transfer. Used by
+   *                   sendMultiple* so the UI can render queued rows with
+   *                   the same id BEFORE the file's turn comes up (enables
+   *                   cancelling files that haven't started yet via the
+   *                   existing cancel(id) entrypoint). When omitted, a
+   *                   fresh UUID is generated as before. */
+  async send(file: File, path?: string, presetId?: string) {
     const meta: FileMeta = {
-      id: makeId(),
+      id: presetId ?? makeId(),
       name: file.name,
       size: file.size,
       mime: file.type || "application/octet-stream",
@@ -536,10 +569,40 @@ export class FileTransfer {
     this.emitter.emit("sendComplete", meta);
   }
 
-  /** Send multiple files sequentially. */
+  /**
+   * Send multiple files sequentially. Pre-mints stable UUIDs for the whole
+   * batch and emits a `sendQueued` event synchronously for each file BEFORE
+   * any bytes go on the wire — the UI can use those events to render
+   * queued rows with cancel buttons. Calling `cancel(id)` on any queued
+   * id causes that file to be skipped (emits `sendQueueCancelled` for it)
+   * when its turn comes up.
+   */
   async sendMultiple(files: File[] | FileList) {
-    for (const file of Array.from(files)) {
-      await this.send(file);
+    const arr = Array.from(files);
+    const ids = arr.map(() => makeId());
+    // Synchronous burst — UI sees every queued row before the first send
+    // promise resolves. Lets users click cancel on file 5 of 5 before
+    // file 1 has even sent its meta frame.
+    for (let i = 0; i < arr.length; i++) {
+      this.emitter.emit("sendQueued", {
+        id: ids[i],
+        name: arr[i].name,
+        size: arr[i].size,
+        position: i + 1,
+        total: arr.length,
+      });
+    }
+    for (let i = 0; i < arr.length; i++) {
+      const id = ids[i];
+      const file = arr[i];
+      // Queue-cancel check — if user cancelled this queued id before its
+      // turn, skip the actual send entirely and surface as queue-cancelled.
+      if (this.cancelledIds.has(id)) {
+        this.cancelledIds.delete(id);
+        this.emitter.emit("sendQueueCancelled", { id, name: file.name });
+        continue;
+      }
+      await this.send(file, undefined, id);
       // Small breather so receiver's `handleMessage` queue can resolve
       // the previous completion before the next meta arrives.
       await new Promise((r) => setTimeout(r, 50));
@@ -551,10 +614,31 @@ export class FileTransfer {
    * Used for folder picks / drag-drop folder so the receiver can group
    * by directory and recreate the tree on Save All. Items with `path`
    * undefined are sent as plain files (no `meta.path`).
+   *
+   * Same queued-event + queue-cancel semantics as sendMultiple — see that
+   * method's doc for the rationale.
    */
   async sendMultipleWithPaths(items: Array<{ file: File; path?: string }>) {
-    for (const { file, path } of items) {
-      await this.send(file, path);
+    const ids = items.map(() => makeId());
+    for (let i = 0; i < items.length; i++) {
+      this.emitter.emit("sendQueued", {
+        id: ids[i],
+        name: items[i].file.name,
+        size: items[i].file.size,
+        position: i + 1,
+        total: items.length,
+        ...(items[i].path !== undefined ? { path: items[i].path } : {}),
+      });
+    }
+    for (let i = 0; i < items.length; i++) {
+      const id = ids[i];
+      const { file, path } = items[i];
+      if (this.cancelledIds.has(id)) {
+        this.cancelledIds.delete(id);
+        this.emitter.emit("sendQueueCancelled", { id, name: file.name });
+        continue;
+      }
+      await this.send(file, path, id);
       await new Promise((r) => setTimeout(r, 50));
     }
   }

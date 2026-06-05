@@ -1950,6 +1950,62 @@ import { site } from "../site.config";
         }
       };
 
+      transfer.emitter.on("sendQueued", ({ id, name, size, position, total, path }) => {
+        // A multi-file batch just started — render a queued row right now so
+        // the user can cancel files 2..N before file 1 has even sent its
+        // meta frame. Skip if only one file in batch (no point — single-file
+        // sends are already covered by sendStart's row creation).
+        if (total < 2) return;
+        // Idempotency guard — if we somehow already have a row for this id
+        // (e.g. resend after a transient error in a future flow) just bail.
+        if (sendRowsById.get(id)) return;
+        const row = makeRow(path ?? name, "send");
+        row.id = id;
+        sendingRows.push(row);
+        sendRowsById.set(id, row);
+        // Show "Queued · 2 of 5" in the status pill so the user knows this
+        // row hasn't started yet — distinct from the "Reconnecting" pill
+        // copy that sendRetry uses (same pill, different message).
+        row.status.textContent = `Queued · ${position} of ${total}`;
+        row.status.classList.remove("hidden");
+        // Pre-fill the size in the bytes line so the row isn't just "0 B / —"
+        // for queued items — gives the user a feel for what's coming.
+        row.bytes.textContent = `0 B / ${formatBytes(size)}`;
+        // Reveal cancel button + wire handler. Queued cancels resolve
+        // synchronously inside the sendMultiple loop (next iteration after
+        // the current file finishes / errors), so we flip the row UI to
+        // "✕ Cancelled" immediately rather than parking it on "Cancelling…"
+        // for potentially many seconds while preceding files drain.
+        row.cancel.classList.remove("hidden");
+        row.cancel.onclick = () => {
+          if (!confirm(`Cancel queued file "${name}"?`)) return;
+          transfer.cancel(id);
+          // Immediate flip — sendQueueCancelled will fire later but its
+          // handler is idempotent.
+          row.status.classList.add("hidden");
+          row.cancel.classList.add("hidden");
+          row.action.classList.remove("hidden");
+          row.action.innerHTML = `<span class="text-sm text-[var(--color-fg-muted)]">✕ Cancelled before sending</span>`;
+        };
+      });
+
+      transfer.emitter.on("sendQueueCancelled", ({ id }) => {
+        // Idempotent terminal handler. The click handler already flipped
+        // the row when the user cancelled from queued state; this fires
+        // when the sendMultiple loop actually reaches that id and skips it.
+        // If the click handler did the flip, the cancel button is hidden —
+        // skip. Otherwise (defensive: someone called transfer.cancel(id)
+        // for a queued id programmatically without using the row's button),
+        // do the same flip here.
+        const row = sendRowsById.get(id);
+        if (!row) return;
+        if (row.cancel.classList.contains("hidden")) return; // already finalized
+        row.status.classList.add("hidden");
+        row.cancel.classList.add("hidden");
+        row.action.classList.remove("hidden");
+        row.action.innerHTML = `<span class="text-sm text-[var(--color-fg-muted)]">✕ Cancelled before sending</span>`;
+      });
+
       transfer.emitter.on("sendStart", (m) => {
         // Keep screen on while a transfer is in flight (refcounted).
         void acquireWakeLock();
