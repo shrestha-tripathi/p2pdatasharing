@@ -214,6 +214,35 @@ import { site } from "../site.config";
           </button>
           <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40 shrink-0" disabled>Join</button>
         </div>
+
+        <!--
+          Short-code claim block — 4 boxes, autoadvance, paste-aware. The
+          sender displays a 4-char Crockford Base32 code beside their QR;
+          receiver types it here, we POST /code/claim → roomId → join the
+          same room as if they'd pasted the link.
+          See docs/specs/local-network-code-pairing.md.
+        -->
+        <div class="mt-5 pt-5 border-t border-[var(--color-border)]">
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            Or enter the 4-character pairing code from the sender's screen:
+          </p>
+          <div class="flex flex-wrap items-center gap-3">
+            <div id="claim-code-boxes" class="flex gap-2">
+              <input class="claim-code-box w-12 h-14 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-center font-mono text-2xl font-semibold uppercase tracking-tight focus:outline-none focus:border-[var(--color-accent)]" maxlength="1" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Pairing code character 1" />
+              <input class="claim-code-box w-12 h-14 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-center font-mono text-2xl font-semibold uppercase tracking-tight focus:outline-none focus:border-[var(--color-accent)]" maxlength="1" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Pairing code character 2" />
+              <input class="claim-code-box w-12 h-14 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-center font-mono text-2xl font-semibold uppercase tracking-tight focus:outline-none focus:border-[var(--color-accent)]" maxlength="1" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Pairing code character 3" />
+              <input class="claim-code-box w-12 h-14 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-center font-mono text-2xl font-semibold uppercase tracking-tight focus:outline-none focus:border-[var(--color-accent)]" maxlength="1" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Pairing code character 4" />
+            </div>
+            <button
+              id="claim-code-submit"
+              type="button"
+              class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40"
+              disabled
+            >Connect</button>
+            <span id="claim-code-status" class="text-xs text-[var(--color-fg-subtle)]"></span>
+          </div>
+        </div>
+
         <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
           No link yet? Ask the sender to copy theirs, or use
           <button id="role-receive-paranoid" class="underline hover:text-[var(--color-fg)]">paranoid mode</button>
@@ -710,7 +739,7 @@ import { site } from "../site.config";
     } from "../lib/devicePairs";
     import { DeviceLobby, type RosterEntry } from "../lib/deviceLobby";
     import { acquireWakeLock, releaseWakeLock } from "../lib/wakeLock";
-    import { mintCode } from "../lib/pairCode";
+    import { mintCode, claimCode } from "../lib/pairCode";
     import {
       trackBackgroundTransfer,
       untrackBackgroundTransfer,
@@ -3929,6 +3958,129 @@ import { site } from "../site.config";
       history.replaceState(null, "", u.toString());
       bootRole();
     };
+
+    // ─── Receiver-side short-code claim ───────────────────────────────
+    // 4 inputs, autoadvance on type, autoback on backspace, paste-aware
+    // (pasting a 4-char string distributes across all boxes).
+    //
+    // On successful claim → set ?r=<roomId> and call bootRole() — same code
+    // path the link/QR flow uses, so resume/chat/transfer all "just work".
+    const claimCodeBoxes = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".claim-code-box"),
+    );
+    const claimCodeSubmit = $<HTMLButtonElement>("claim-code-submit");
+    const claimCodeStatus = $("claim-code-status");
+
+    const claimCodeChars = (): string =>
+      claimCodeBoxes.map((b) => b.value).join("").toUpperCase();
+
+    const claimCodeIsFull = (): boolean =>
+      claimCodeBoxes.every((b) => b.value.length === 1);
+
+    const updateClaimSubmit = () => {
+      claimCodeSubmit.disabled = !claimCodeIsFull();
+    };
+
+    const clearClaimCode = () => {
+      for (const b of claimCodeBoxes) b.value = "";
+      updateClaimSubmit();
+      claimCodeBoxes[0]?.focus();
+    };
+
+    const distributePastedCode = (text: string) => {
+      // Strip whitespace + dashes (users often paste "H7K2" or "H7-K2"),
+      // uppercase, then fan out across boxes.
+      const cleaned = text.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+      const chars = cleaned.slice(0, claimCodeBoxes.length).split("");
+      for (let i = 0; i < claimCodeBoxes.length; i++) {
+        claimCodeBoxes[i].value = chars[i] ?? "";
+      }
+      updateClaimSubmit();
+      // Focus last filled box (or last box if full).
+      const lastFilled = Math.min(chars.length, claimCodeBoxes.length) - 1;
+      const focusIdx = Math.max(0, Math.min(lastFilled + 1, claimCodeBoxes.length - 1));
+      claimCodeBoxes[focusIdx]?.focus();
+      claimCodeBoxes[focusIdx]?.select();
+      if (claimCodeIsFull()) {
+        // Auto-submit on full paste — saves a click in the happy path.
+        void doClaim();
+      }
+    };
+
+    claimCodeBoxes.forEach((box, idx) => {
+      box.addEventListener("input", () => {
+        // Sanitise to a single uppercase alphanum char.
+        const raw = box.value.replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+        box.value = raw.slice(0, 1);
+        if (box.value && idx < claimCodeBoxes.length - 1) {
+          claimCodeBoxes[idx + 1].focus();
+        }
+        updateClaimSubmit();
+        if (claimCodeIsFull()) {
+          // Auto-submit on the 4th character — no Connect click needed.
+          void doClaim();
+        }
+      });
+
+      box.addEventListener("keydown", (e) => {
+        if (e.key === "Backspace" && !box.value && idx > 0) {
+          claimCodeBoxes[idx - 1].focus();
+          claimCodeBoxes[idx - 1].value = "";
+          updateClaimSubmit();
+        } else if (e.key === "ArrowLeft" && idx > 0) {
+          claimCodeBoxes[idx - 1].focus();
+        } else if (e.key === "ArrowRight" && idx < claimCodeBoxes.length - 1) {
+          claimCodeBoxes[idx + 1].focus();
+        } else if (e.key === "Enter" && claimCodeIsFull()) {
+          e.preventDefault();
+          void doClaim();
+        }
+      });
+
+      box.addEventListener("paste", (e) => {
+        const pasted = e.clipboardData?.getData("text") ?? "";
+        if (pasted.length > 1) {
+          e.preventDefault();
+          distributePastedCode(pasted);
+        }
+      });
+
+      box.addEventListener("focus", () => box.select());
+    });
+
+    const doClaim = async () => {
+      if (!claimCodeIsFull()) return;
+      const code = claimCodeChars();
+      claimCodeSubmit.disabled = true;
+      claimCodeStatus.textContent = "connecting…";
+
+      const result = await claimCode(site.signalingUrl, code);
+
+      if (result.roomId) {
+        claimCodeStatus.textContent = "matched ✓";
+        role = "receiver";
+        rolePicker.classList.add("hidden");
+        const u = new URL(location.href);
+        u.searchParams.set("r", result.roomId);
+        history.replaceState(null, "", u.toString());
+        bootRole();
+        return;
+      }
+
+      // Map error to user-facing copy.
+      const msg = result.error === "expired"
+        ? "Code expired — ask the sender for a new one."
+        : result.error === "claimed"
+        ? "Code already used — ask the sender for a new one."
+        : result.error === "network"
+        ? "Couldn't reach the server. Try again."
+        : "No active session for that code. Double-check and retry.";
+      claimCodeStatus.textContent = "";
+      addWarning(msg);
+      clearClaimCode();
+    };
+
+    claimCodeSubmit.onclick = () => void doClaim();
 
     roleReceiveParanoid.onclick = () => {
       role = "receiver";
