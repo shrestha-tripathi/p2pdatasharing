@@ -2749,7 +2749,23 @@ import { site } from "../site.config";
       const url = `${location.origin}${import.meta.env.BASE_URL}transfer?r=${room}`;
       shareLink.value = url;
       senderLink.classList.remove("hidden");
-      renderQrCode(url);
+      // Await QR render so we know the canvas is mounted, then scroll the QR
+      // into view so another device can scan it without the sender having to
+      // align their screen. Centred so the code is roughly mid-viewport on
+      // both desktop and phone. Honour prefers-reduced-motion.
+      await renderQrCode(url);
+      try {
+        const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+        requestAnimationFrame(() => {
+          qrWrap.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+            block: "center",
+            inline: "nearest",
+          });
+        });
+      } catch {
+        // scrollIntoView shouldn't throw, but if it does, it's pure polish — swallow.
+      }
       await session.hostAuto(room);
     };
 
