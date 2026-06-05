@@ -558,18 +558,40 @@
     them). Hoisting avoids the inconsistency entirely.
   */
   @keyframes packet-fly-desktop {
-    0%   { opacity: 0; left: 0%;   top: 0px;   }
-    10%  { opacity: 1; left: 10%;  top: -22px; }
-    50%  { opacity: 1; left: 50%;  top: -52px; }
-    90%  { opacity: 1; left: 90%;  top: -22px; }
-    100% { opacity: 0; left: 100%; top: 0px;   }
+    /*
+      Geometry tuned from runtime measurement, not theory.
+
+      The stage has a 3D `rotateX(8deg)` perspective which tilts the wire
+      visually: even the wire's endpoints (viewBox y=100, the "centre line"
+      of the SVG box) project to ~10 px above stage centre on screen, and
+      the curve apex projects to ~44 px above.
+
+      The .packet-stream sits at stage centre with no tilt of its own (it
+      inherits perspective via the stage), so a flat `top: 0` packet would
+      appear ~10 px below the wire endpoints. To make packets visually
+      ride the wire, we shift each keyframe a few px above stage centre,
+      matching the wire's projected Y at the same t.
+
+      Measured wire Y (px above stage centre) → packet `top` (3 px below
+      wire = "rides the line"):
+        t=0/100%  →  9.6 above  →  -7
+        t=10/90%  → 21.9 above  → -19
+        t=50%     → 44.4 above  → -41
+    */
+    0%   { opacity: 0; left: 0%;   top:  -7px; }
+    10%  { opacity: 1; left: 10%;  top: -19px; }
+    50%  { opacity: 1; left: 50%;  top: -41px; }
+    90%  { opacity: 1; left: 90%;  top: -19px; }
+    100% { opacity: 0; left: 100%; top:  -7px; }
   }
 
   @keyframes enc-pop-desktop {
-    0%, 25%   { opacity: 0; transform: translate(-50%, -50%) translateY(-46px) translateZ(40px) scale(0.85); }
-    35%       { opacity: 1; transform: translate(-50%, -50%) translateY(-58px) translateZ(40px) scale(1); }
-    65%       { opacity: 1; transform: translate(-50%, -50%) translateY(-58px) translateZ(40px) scale(1); }
-    78%       { opacity: 0; transform: translate(-50%, -50%) translateY(-62px) translateZ(40px) scale(0.92); }
+    /* Wire apex projects to ~44 px above stage centre (after rotateX(8deg)).
+       Badge sits ~6 px above that, so translateY around -50 px. */
+    0%, 25%   { opacity: 0; transform: translate(-50%, -50%) translateY(-38px) translateZ(40px) scale(0.85); }
+    35%       { opacity: 1; transform: translate(-50%, -50%) translateY(-50px) translateZ(40px) scale(1); }
+    65%       { opacity: 1; transform: translate(-50%, -50%) translateY(-50px) translateZ(40px) scale(1); }
+    78%       { opacity: 0; transform: translate(-50%, -50%) translateY(-54px) translateZ(40px) scale(0.92); }
     100%      { opacity: 0; }
   }
 
@@ -607,18 +629,28 @@
     .device.receiver { right: 4%; }
 
     /* Match wire/packet-stream window to the new device positions so the
-       arc spans from card-edge to card-edge instead of falling short. */
-    .wire,
-    .packet-stream {
+       arc spans from card-edge to card-edge instead of falling short.
+       NOTE: .wire and .packet-stream are split deliberately — .wire needs
+       a tall box for its SVG to render, but .packet-stream must remain
+       height: 0 so the packet baseline (top: 0) sits at stage centre. */
+    .wire {
       left: 28%;
       right: 28%;
       width: 44%;
       height: 240px;
     }
+    .packet-stream {
+      left: 28%;
+      right: 28%;
+      width: 44%;
+      /* height stays 0 from the base rule — do NOT override. */
+    }
 
-    /* Lift the packet arc apex so the curve reads even across a wider
-       span. Mobile values would visually flatten to a near-straight line
-       at desktop dimensions. Keyframes hoisted above this @media block. */
+    /* Wire path is M 0 100 Q 200 40 400 100 in a 400×200 viewBox,
+       stretched (preserveAspectRatio="none") into the 240 px-tall .wire.
+       Apex y=70 → 30 viewBox units above centre → 36 CSS px above stage
+       centre. Packet baseline (top: 0) sits at stage centre, so top: -30 px
+       puts the packet 6 px below the wire apex — "rides the line". */
     .packet {
       animation-name: packet-fly-desktop;
     }
@@ -634,7 +666,7 @@
        new, higher arc apex. Uses a dedicated `-desktop` keyframe so the
        mobile `enc-pop` definition stays untouched globally. */
     .encryption-badge {
-      transform: translate(-50%, -50%) translateY(-58px) translateZ(40px);
+      transform: translate(-50%, -50%) translateY(-50px) translateZ(40px);
       animation-name: enc-pop-desktop;
     }
   }
