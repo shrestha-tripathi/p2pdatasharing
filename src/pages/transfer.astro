@@ -908,7 +908,17 @@ import { site } from "../site.config";
         return;
       }
       const totalBytes = unsaved.reduce((a, r) => a + r.file.size, 0);
-      saveAllSummary.textContent = `${unsaved.length} files ready (${formatBytes(totalBytes)})`;
+      // Detect folder-aware items so we can advertise the tree-preserving
+      // behavior. Mixed batches (some with path, some without) get the
+      // folder label too — the flat ones just land at the picked root.
+      const anyFolder = unsaved.some((r) => r.path);
+      const rootFolders = anyFolder
+        ? new Set(unsaved.filter((r) => r.path).map((r) => r.path!.split("/")[0]))
+        : new Set<string>();
+      const detail = anyFolder
+        ? `${unsaved.length} files · ${formatBytes(totalBytes)} · ${rootFolders.size} folder${rootFolders.size === 1 ? "" : "s"} preserved`
+        : `${unsaved.length} files ready (${formatBytes(totalBytes)})`;
+      saveAllSummary.textContent = detail;
       saveAllBar.classList.remove("hidden");
     };
 
@@ -927,16 +937,21 @@ import { site } from "../site.config";
         let saved = 0;
         for (const item of unsaved) {
           try {
-            // Avoid clobbering: if file exists, append "-1", "-2", etc.
-            const safeName = await uniqueName(dir, item.name);
-            const fh = await dir.getFileHandle(safeName, { create: true });
+            // Items with a meta.path (e.g. "MyPhotos/2024/IMG_1.jpg") write
+            // into recreated subdirectories. Items without a path land flat
+            // at the picked root. uniqueName() is called against the FINAL
+            // target dir so collisions are per-subdir (foo/bar/x.jpg and
+            // foo/baz/x.jpg don't collide).
+            const fh = item.path
+              ? await ensureSubdirsAndGetFileHandle(dir, item.path)
+              : await dir.getFileHandle(await uniqueName(dir, item.name), { create: true });
             const w = await fh.createWritable();
             await item.file.stream().pipeTo(w);
             item.saved = true;
             saved += 1;
             saveAllBtn.textContent = `Saving ${saved}/${unsaved.length}…`;
           } catch (e) {
-            addWarning(`Failed to save ${item.name}: ${(e as Error).message}`);
+            addWarning(`Failed to save ${item.path ?? item.name}: ${(e as Error).message}`);
           }
         }
         saveAllBtn.textContent = `✓ Saved ${saved} files`;
@@ -944,7 +959,7 @@ import { site } from "../site.config";
         vibrate(120);
         // Update individual row Save buttons to show they're already saved
         for (const item of receivedItems) {
-          if (item.saved) markRowAsSaved(item.name);
+          if (item.saved) markRowAsSaved(item.path ?? item.name);
         }
         setTimeout(() => {
           saveAllBtn.disabled = false;
@@ -979,6 +994,34 @@ import { site } from "../site.config";
         }
       }
       return `${stem}-${Date.now()}${ext}`;
+    };
+
+    /**
+     * Walk a relative path like "MyPhotos/2024/IMG_1.jpg" inside rootDir,
+     * creating intermediate directories as needed, and return a file handle
+     * for the final segment (collision-safe via uniqueName on the leaf dir).
+     *
+     * Empty path segments are skipped (handles leading/trailing slashes
+     * and double-slashes defensively). Throws if the path is empty or
+     * pure separators.
+     */
+    const ensureSubdirsAndGetFileHandle = async (
+      rootDir: FileSystemDirectoryHandle,
+      relativePath: string,
+    ): Promise<FileSystemFileHandle> => {
+      const segments = relativePath.split("/").filter((s) => s.length > 0);
+      if (segments.length === 0) {
+        throw new Error("ensureSubdirsAndGetFileHandle: empty path");
+      }
+      const fileName = segments.pop()!;
+      let dir = rootDir;
+      for (const seg of segments) {
+        // Filesystem-safe per-segment: getDirectoryHandle({create:true})
+        // creates the subdir if missing, or hands back the existing one.
+        dir = await dir.getDirectoryHandle(seg, { create: true });
+      }
+      const safe = await uniqueName(dir, fileName);
+      return dir.getFileHandle(safe, { create: true });
     };
 
     /** Find the row showing this filename and mark its Save button as done. */
@@ -1830,7 +1873,7 @@ import { site } from "../site.config";
           existing.status.classList.add("hidden");
           existing.status.textContent = "";
         } else {
-          activeSendRow = makeRow(m.name, "send");
+          activeSendRow = makeRow(m.path ?? m.name, "send");
           activeSendRow.id = m.id;
           sendingRows.push(activeSendRow);
           if (m.id) sendRowsById.set(m.id, activeSendRow);
@@ -1904,7 +1947,7 @@ import { site } from "../site.config";
           activeRecvRow = existing;
           showResumeBadge(existing, m.resumedFrom ?? 0, m.size);
         } else {
-          activeRecvRow = makeRow(m.name, "recv");
+          activeRecvRow = makeRow(m.path ?? m.name, "recv");
           receivingRows.push(activeRecvRow);
           if (m.id) recvRowsById.set(m.id, activeRecvRow);
           showResumeBadge(activeRecvRow, m.resumedFrom ?? 0, m.size);
@@ -1941,14 +1984,29 @@ import { site } from "../site.config";
           `;
           const btn = row.action.querySelector('[data-act="save"]') as HTMLButtonElement;
           const hint = row.action.querySelector('[data-act="hint"]') as HTMLElement;
+          // If this file came from a folder, update the hint with safe textContent
+          // (folder names are user-supplied filesystem strings — never interpolate
+          // directly into innerHTML).
+          if (meta.path) {
+            const rootFolder = meta.path.split("/")[0];
+            hint.textContent = `Part of folder “${rootFolder}” — for the full tree on disk use “Save all to folder” below`;
+          }
           btn.onclick = async () => {
             btn.disabled = true;
             btn.textContent = "Saving…";
             try {
+              // Suggest the bare filename (browsers don't accept paths in
+              // suggestedName) but flag the folder context in the hint.
               const result = await saveFileToDisk(file, meta.name);
               if (result === "saved" || result === "downloaded") {
-                // Mark this item as saved so it drops out of "Save all" tally
-                const entry = receivedItems.find((r) => r.name === meta.name && !r.saved);
+                // Mark this item as saved so it drops out of "Save all" tally.
+                // Match on path-or-name + id (when present) to disambiguate
+                // multiple files with the same basename in different subdirs.
+                const entry = receivedItems.find(
+                  (r) => !r.saved &&
+                    r.name === meta.name &&
+                    (r.path ?? "") === (meta.path ?? ""),
+                );
                 if (entry) entry.saved = true;
                 refreshSaveAllBar();
               }
