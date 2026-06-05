@@ -829,6 +829,14 @@ import { site } from "../site.config";
     let chat: ChatManager | null = null;
     let lastSessionState: PeerConnState | "idle" = "idle";
     let lastMessageTs = 0;
+    /**
+     * Set true when an ICE restart has been initiated and the session
+     * has dropped back to "signaling" from "connected". Used to swap
+     * the status copy from "Waiting for peer to join…" to the friendlier
+     * "Reconnecting over new network…" and to fire a "✓ Reconnected"
+     * toast once we're back. Cleared on successful reconnect.
+     */
+    let renegotiating = false;
 
     // ---------- "Send another / Clear" reset bar ----------
     // Tracks completed transfer counts so we can show a helpful summary.
@@ -1628,7 +1636,23 @@ import { site } from "../site.config";
       s.emitter.on("state", (state) => {
         const prevState = lastSessionState;
         lastSessionState = state;
-        setStatus(state);
+        // Detect ICE restart / renegotiation — fires when the session
+        // briefly drops back to "signaling" from a healthy "connected"
+        // state (vs the initial handshake which goes idle → signaling).
+        // Surfaces friendlier copy than the default "Waiting for peer
+        // to join…" status pill, and a "✓ Reconnected" toast on success
+        // so the user knows what just happened.
+        if (state === "signaling" && prevState === "connected") {
+          renegotiating = true;
+          setStatus("connecting", "Reconnecting over new network…");
+          addInfo("Network changed — renegotiating the connection…");
+        } else if (state === "connected" && renegotiating) {
+          renegotiating = false;
+          setStatus("connected", "Reconnected");
+          addInfo("✓ Reconnected — transfer continuing");
+        } else {
+          setStatus(state);
+        }
         if (state === "connected") {
           everConnectedThisSession = true;
           // Audio chirp + buzz only on the FIRST connect (not on reconnect),
