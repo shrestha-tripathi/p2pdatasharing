@@ -12,6 +12,13 @@ class_name = "RoomDO"
 name = "LOBBY"
 class_name = "LobbyDO"
 
+# CodeDO — global short-code pairing. Single instance worldwide
+# (idFromName("global-v1")). Holds in-memory `code → roomId` map
+# for 4-char Crockford Base32 codes with 60s TTL.
+[[durable_objects.bindings]]
+name = "CODES"
+class_name = "CodeDO"
+
 # Migration: register the DO class so Cloudflare provisions storage.
 # Using new_sqlite_classes so this works on Workers Free plan (the old
 # new_classes form requires a paid Workers plan as of 2024).
@@ -22,6 +29,10 @@ new_sqlite_classes = ["RoomDO"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["LobbyDO"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["CodeDO"]
 
 # Allow any browser origin to upgrade WS — adjust for production if you
 # want to lock it down to a specific domain.

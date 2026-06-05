@@ -21,6 +21,7 @@
 export interface Env {
   ROOM: DurableObjectNamespace;
   LOBBY: DurableObjectNamespace;
+  CODES: DurableObjectNamespace;
   ALLOWED_ORIGIN: string;
   // Cloudflare Realtime TURN credentials — set via:
   //   npx wrangler secret put TURN_TOKEN_ID
@@ -55,6 +56,17 @@ export default {
     // Realtime TURN. Falls back to public STUN if secrets aren't set.
     if (url.pathname === "/turn") {
       return handleTurn(env);
+    }
+
+    // Short-code pairing routes — see worker/src/index.ts → CodeDO and
+    // docs/specs/local-network-code-pairing.md for the full design.
+    // Both mint and claim are routed to a single global CodeDO instance
+    // so code collisions are detected authoritatively.
+    if (url.pathname === "/code/mint") {
+      return handleCodeMint(request, env);
+    }
+    if (url.pathname === "/code/claim") {
+      return handleCodeClaim(request, env);
     }
 
     // Everything else expects a WebSocket upgrade with ?room=<id>.
@@ -131,6 +143,59 @@ async function handleTurn(env: Env): Promise<Response> {
       { headers },
     );
   }
+}
+
+/**
+ * Forward a code-pairing request to the global CodeDO instance.
+ *
+ * Why a single global DO?
+ *   - Code collisions only matter globally — a 4-char Crockford Base32
+ *     code lives in a 1.05M-entry namespace. With ~60s TTL, ~10k mints/sec
+ *     would be needed to cause regular collisions. We're nowhere near that.
+ *   - One authoritative instance means collision detection is trivial
+ *     (just check a Map<code, record>).
+ *   - DO migration: if a region becomes hot, Cloudflare auto-migrates the
+ *     DO toward it. At 10M+ DAU we'd shard regionally; the wire protocol
+ *     here already supports that change without client coordination.
+ */
+const CODE_DO_NAME = "global-v1";
+
+function getCodeDO(env: Env) {
+  return env.CODES.get(env.CODES.idFromName(CODE_DO_NAME));
+}
+
+async function handleCodeMint(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST" && request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: CORS_HEADERS });
+  }
+  // Validate room param before bothering the DO.
+  const url = new URL(request.url);
+  const room = url.searchParams.get("room");
+  if (!room || room.length > 128 || !/^[\w-]+$/.test(room)) {
+    return jsonResponse({ error: "invalid room" }, 400);
+  }
+  return getCodeDO(env).fetch(request);
+}
+
+async function handleCodeClaim(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST" && request.method !== "GET") {
+    return new Response("Method not allowed", { status: 405, headers: CORS_HEADERS });
+  }
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  // Validation: 4-8 alphanumeric chars. We ship 4 today; the range covers
+  // any future format bump (5-char would be config-only on the server).
+  if (!code || !/^[0-9A-Za-z]{4,8}$/.test(code)) {
+    return jsonResponse({ error: "invalid" }, 400);
+  }
+  return getCodeDO(env).fetch(request);
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...CORS_HEADERS },
+  });
 }
 
 export class RoomDO implements DurableObject {
@@ -438,5 +503,157 @@ export class LobbyDO implements DurableObject {
         try { p.ws.send(msg); } catch { /* */ }
       }
     }
+  }
+}
+
+/**
+ * CodeDO — short-code pairing Durable Object.
+ *
+ * Holds the global `code → roomId` map for 4-char Crockford Base32
+ * codes. One global instance (`idFromName("global-v1")`) — see the
+ * routing wrapper functions above for why.
+ *
+ * Wire protocol
+ * -------------
+ *   POST /code/mint?room=<roomId>
+ *     → 200 { code: "H7K2", expiresInMs: 60000, expiresAt: <ms> }
+ *     → 503 { error: "exhausted" }     (5 collision-retries failed)
+ *
+ *   POST /code/claim?code=<code>
+ *     → 200 { roomId: "<id>" }
+ *     → 404 { error: "invalid" }       (code never minted)
+ *     → 410 { error: "expired" }       (code existed but TTL elapsed)
+ *     → 410 { error: "claimed" }       (single-use; another peer won)
+ *
+ * Lifecycle
+ * ---------
+ *   - Memory-only (no SQLite). DO restart loses ≤60s of pending mints.
+ *   - Periodic GC sweeps expired entries every 30s.
+ *   - Codes are single-use: claim deletes the entry immediately.
+ */
+
+// Crockford Base32 — excludes I, L, O, U to avoid visual confusion and
+// accidental profanity. https://www.crockford.com/base32.html
+const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CODE_LENGTH = 4;                          // 32^4 = 1,048,576 codes
+const CODE_TTL_MS = 60_000;                     // 60s
+const CODE_MAX_RETRIES = 5;                     // collision re-rolls
+const CODE_GC_INTERVAL_MS = 30_000;             // sweep expired entries
+
+interface CodeRecord {
+  roomId: string;
+  expiresAt: number;
+}
+
+export class CodeDO implements DurableObject {
+  private codes = new Map<string, CodeRecord>();
+  private gcAlarmScheduled = false;
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  constructor(_state: DurableObjectState, _env: Env) {}
+
+  async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (url.pathname === "/code/mint") {
+      return this.mint(url);
+    }
+    if (url.pathname === "/code/claim") {
+      return this.claim(url);
+    }
+    return new Response("Not found", { status: 404, headers: CORS_HEADERS });
+  }
+
+  private mint(url: URL): Response {
+    const room = url.searchParams.get("room") || "";
+    // Outer router already validated; defence in depth.
+    if (!room || !/^[\w-]+$/.test(room)) {
+      return jsonResponse({ error: "invalid room" }, 400);
+    }
+
+    // Sweep before generating so the namespace check is accurate.
+    this.gcExpired();
+
+    let code = "";
+    for (let attempt = 0; attempt < CODE_MAX_RETRIES; attempt++) {
+      const candidate = this.generateCode();
+      const existing = this.codes.get(candidate);
+      // Treat expired-but-not-yet-GC'd entries as free.
+      if (!existing || existing.expiresAt < Date.now()) {
+        code = candidate;
+        break;
+      }
+    }
+    if (!code) {
+      return jsonResponse({ error: "exhausted" }, 503);
+    }
+
+    const expiresAt = Date.now() + CODE_TTL_MS;
+    this.codes.set(code, { roomId: room, expiresAt });
+    this.scheduleGc();
+
+    return jsonResponse({
+      code,
+      expiresInMs: CODE_TTL_MS,
+      expiresAt,
+    });
+  }
+
+  private claim(url: URL): Response {
+    const codeRaw = url.searchParams.get("code") || "";
+    // Normalise: codes are case-insensitive at input but stored uppercase.
+    const code = codeRaw.toUpperCase();
+
+    if (!code || !/^[0-9A-Z]{4,8}$/.test(code)) {
+      return jsonResponse({ error: "invalid" }, 400);
+    }
+
+    const record = this.codes.get(code);
+    if (!record) {
+      return jsonResponse({ error: "invalid" }, 404);
+    }
+    if (record.expiresAt < Date.now()) {
+      this.codes.delete(code);
+      return jsonResponse({ error: "expired" }, 410);
+    }
+
+    // Single-use: delete on claim. A second simultaneous claim sees nothing
+    // (atomicity guaranteed by DO's single-threaded event loop).
+    this.codes.delete(code);
+    return jsonResponse({ roomId: record.roomId });
+  }
+
+  private generateCode(): string {
+    const bytes = new Uint8Array(CODE_LENGTH);
+    crypto.getRandomValues(bytes);
+    let out = "";
+    for (let i = 0; i < CODE_LENGTH; i++) {
+      // Mask to 5 bits → index into 32-char alphabet. Uniform distribution
+      // (modulo bias is zero because 256 is a multiple of 32).
+      out += CROCKFORD_ALPHABET[bytes[i] & 0x1f];
+    }
+    return out;
+  }
+
+  private gcExpired() {
+    const now = Date.now();
+    for (const [code, record] of this.codes) {
+      if (record.expiresAt < now) {
+        this.codes.delete(code);
+      }
+    }
+  }
+
+  private scheduleGc() {
+    // Self-throttling background sweep. We don't use alarm() because the
+    // sweep is cheap and the next mint will trigger it anyway; this is
+    // just for the case where the DO sits idle with stale entries.
+    if (this.gcAlarmScheduled) return;
+    this.gcAlarmScheduled = true;
+    setTimeout(() => {
+      this.gcAlarmScheduled = false;
+      this.gcExpired();
+      if (this.codes.size > 0) this.scheduleGc();
+    }, CODE_GC_INTERVAL_MS);
   }
 }
