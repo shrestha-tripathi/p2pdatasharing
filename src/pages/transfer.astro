@@ -2078,9 +2078,11 @@ import { site } from "../site.config";
         const existing = m.id ? recvRowsById.get(m.id) : undefined;
         if (existing) {
           activeRecvRow = existing;
+          existing.id = m.id;
           showResumeBadge(existing, m.resumedFrom ?? 0, m.size);
         } else {
           activeRecvRow = makeRow(m.path ?? m.name, "recv");
+          activeRecvRow.id = m.id;
           receivingRows.push(activeRecvRow);
           if (m.id) recvRowsById.set(m.id, activeRecvRow);
           showResumeBadge(activeRecvRow, m.resumedFrom ?? 0, m.size);
@@ -2089,6 +2091,27 @@ import { site } from "../site.config";
       transfer.emitter.on("receiveProgress", (p) => {
         if (activeRecvRow) updateRow(activeRecvRow, p);
         updateTitleProgress(p.bytes, p.total, "Receiving");
+      });
+      transfer.emitter.on("receiveCancelled", ({ id, name, bytesReceived, totalBytes }) => {
+        // Sender told us they cancelled. Release our wake lock + background
+        // tracking (matching the receiveStart acquire), then flip the row
+        // to a ✕ Cancelled state so the user understands why the bar froze
+        // instead of leaving it sitting at 17% forever. Best-effort match —
+        // if we never saw a row for this id (e.g. cancel arrived before our
+        // first receiveStart) we just drop the event.
+        void releaseWakeLock();
+        untrackBackgroundTransfer();
+        const row = recvRowsById.get(id);
+        if (!row) return;
+        const displayName = name || row.name;
+        const pct = totalBytes > 0 ? Math.round((bytesReceived / totalBytes) * 100) : 0;
+        row.status.classList.add("hidden");
+        row.action.classList.remove("hidden");
+        row.action.innerHTML = `<span class="text-sm text-[var(--color-fg-muted)]">✕ Cancelled by sender${
+          totalBytes > 0 ? ` at ${pct}% (${formatBytes(bytesReceived)} of ${formatBytes(totalBytes)})` : ""
+        }</span>`;
+        if (activeRecvRow && activeRecvRow.id === id) activeRecvRow = null;
+        addWarning(`"${displayName}" was cancelled by the sender.`);
       });
       transfer.emitter.on("receiveComplete", ({ meta, file }) => {
         // Matched release for receiveStart acquire.

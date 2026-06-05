@@ -7,6 +7,12 @@
  *      (sender waits for this before streaming bytes)
  *   3. N × ArrayBuffer → file payload, starting at `offset`, in order
  *   4. JSON  → optional: { kind: "done", id }  (advisory, future use)
+ *   5. JSON  → sender abort: { kind: "cancel", id }
+ *      Fired when the sender cancels an in-flight transfer. Receiver
+ *      closes its OPFS writable for `id`, clears rx state, and emits
+ *      receiveCancelled so the UI can mark the row "✕ Cancelled by sender"
+ *      instead of leaving the partial frozen forever. Best-effort —
+ *      sender skips this frame if the channel is already closed.
  *
  * Receiver writes each chunk into the Origin Private File System (OPFS),
  * keyed by the file's UUID so partials survive disconnects within the
@@ -89,6 +95,13 @@ export interface TransferEvents {
   receiveStart: FileMeta & { resumedFrom?: number };
   receiveProgress: TransferProgress;
   receiveComplete: { meta: FileMeta; file: File };
+  /**
+   * Sender told us they cancelled this transfer via the wire `cancel` frame.
+   * Receiver closes its OPFS writable, clears rx state, and emits this so
+   * the UI can mark the row "✕ Cancelled by sender" instead of letting it
+   * sit frozen at whatever % the bytes stopped flowing at.
+   */
+  receiveCancelled: { id: string; name: string; bytesReceived: number; totalBytes: number };
   error: Error;
   /**
    * Fired when the receiver doesn't respond to our resume handshake within
@@ -353,6 +366,20 @@ export class FileTransfer {
     //    wake it so it can observe cancelledIds on the next tick.
     const wake = this.pendingCancelWakes.get(id);
     if (wake) wake();
+    // 3) Best-effort wire notify so the receiver can close its OPFS handle
+    //    and mark the row "✕ Cancelled by sender" instead of staring at a
+    //    partial that never finishes. We send AFTER waking local awaits so
+    //    a queued ch.send() doesn't race past a closed-channel guard. If
+    //    the channel is gone we just skip — receiver will eventually time
+    //    out, but the local UI cancel already worked.
+    const ch = this.session.channel;
+    if (ch && ch.readyState === "open") {
+      try {
+        this.session.send(JSON.stringify({ kind: "cancel", id }));
+      } catch {
+        /* channel slammed shut between readyState check and send — fine */
+      }
+    }
   }
 
   /**
@@ -657,6 +684,17 @@ export class FileTransfer {
           const resolver = this.pendingResumes.get(parsed.id);
           if (resolver) resolver(Number(parsed.offset) || 0);
         }
+        else if (parsed.kind === "cancel") {
+          // Sender side cancelled this transfer. Two cases:
+          //   (a) it's the file we're actively receiving → tear down the
+          //       writable, drop rx state, surface ✕ to UI.
+          //   (b) it's a queued/pending id we haven't started receiving
+          //       (rare — sender shouldn't fire `cancel` for a file we
+          //       haven't seen meta for yet, but be defensive) → emit
+          //       receiveCancelled with size=0 so UI can clean any
+          //       speculative row.
+          await this.handleSenderCancel(String(parsed.id));
+        }
       } catch {
         /* non-JSON string — ignore */
       }
@@ -784,6 +822,54 @@ export class FileTransfer {
     }
 
     this.emitter.emit("receiveStart", { ...meta, resumedFrom });
+  }
+
+  /**
+   * Receiver-side: sender told us they cancelled `id` via the wire `cancel`
+   * frame. Two paths:
+   *   - `id` matches the file currently being received → close the OPFS
+   *     writable, leave the partial on disk (next reconnect's resume
+   *     handshake will surface it; or it'll be GC'd by a future cleanup
+   *     pass), and clear rx state so the next meta starts fresh.
+   *   - `id` doesn't match active rx → still emit receiveCancelled with
+   *     bytesReceived=0 so any speculative UI row tied to that id can
+   *     clean itself up. Defensive only; sender shouldn't fire `cancel`
+   *     for an id we never saw meta for.
+   */
+  private async handleSenderCancel(id: string): Promise<void> {
+    const isActive = this.rxMeta && this.rxMeta.id === id;
+    if (isActive && this.rxMeta) {
+      const meta = this.rxMeta;
+      const bytes = this.rxBytes;
+      // Best-effort writable close — if it throws (channel slammed,
+      // OPFS quota issue) we still want to clear state and emit.
+      if (this.rxHandle) {
+        try {
+          await this.rxHandle.close();
+        } catch {
+          /* writable already gone — fine */
+        }
+      }
+      this.rxMeta = null;
+      this.rxHandle = null;
+      this.rxFileHandle = null;
+      this.rxBytes = 0;
+      this.emitter.emit("receiveCancelled", {
+        id,
+        name: meta.name,
+        bytesReceived: bytes,
+        totalBytes: meta.size,
+      });
+      return;
+    }
+    // Inactive id — fire a synthetic event so the UI can clean up a
+    // speculative/queued row if one exists for this id.
+    this.emitter.emit("receiveCancelled", {
+      id,
+      name: "",
+      bytesReceived: 0,
+      totalBytes: 0,
+    });
   }
 }
 
