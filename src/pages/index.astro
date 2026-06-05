@@ -198,29 +198,57 @@ const features = [
             </div>
             <h3 class="mt-3 text-xl font-semibold">Upload, store, hope it works</h3>
 
-            <svg viewBox="0 0 360 200" class="mt-6 w-full h-auto text-[var(--color-fg-muted)]" aria-hidden="true">
+            <!--
+              Comparison diagram — unified design system.
+              Shared layout grid with the "new way" diagram below so the eye
+              reads them as a paired before/after. Both use:
+                * viewBox 0 0 360 220 (same canvas)
+                * Sender/Recipient boxes at (10,130) 80×50 and (270,130) 80×50
+                * stroke-width 1.5 (primary), 1 (secondary dashed)
+                * text fills via design tokens — NO opacity stacking
+                  (opacity on top of --color-fg-* murders contrast on light
+                  theme; tokens are already tuned for both themes)
+                * marker id is per-diagram to avoid currentColor leakage
+              Avoid pure-horizontal paths anywhere (see
+              skill: svg-horizontal-path-bbox-bug) — every line carries a
+              Q control point with ~1 px offset so the bbox isn't degenerate.
+            -->
+            <svg viewBox="0 0 360 220" class="mt-6 w-full h-auto" aria-hidden="true">
               <defs>
-                <marker id="arr-old" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
-                  <path d="M0,0 L8,4 L0,8 z" fill="currentColor" />
+                <marker id="arr-old" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0,0 L9,4.5 L0,9 z" fill="var(--color-fg-muted)" />
                 </marker>
               </defs>
+
+              <!-- Server cloud (dominant — visually communicates "file passes through here") -->
+              <ellipse cx="180" cy="56" rx="62" ry="30" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <!-- Small storage icon inside cloud -->
+              <rect x="166" y="44" width="28" height="6" rx="1.5" fill="none" stroke="var(--color-fg-muted)" stroke-width="1"/>
+              <rect x="166" y="52" width="28" height="6" rx="1.5" fill="none" stroke="var(--color-fg-muted)" stroke-width="1"/>
+              <circle cx="170" cy="47" r="0.8" fill="var(--color-fg-muted)"/>
+              <circle cx="170" cy="55" r="0.8" fill="var(--color-fg-muted)"/>
+              <text x="180" y="75" text-anchor="middle" font-size="10.5" fill="var(--color-fg)" font-weight="600">Their server</text>
+
               <!-- Sender -->
-              <rect x="10" y="120" width="80" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
-              <text x="50" y="148" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">You</text>
-              <!-- Cloud (huge, dominant) -->
-              <ellipse cx="180" cy="50" rx="56" ry="26" fill="none" stroke="currentColor" stroke-width="1.5"/>
-              <text x="180" y="48" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">Their server</text>
-              <text x="180" y="62" text-anchor="middle" font-size="9" fill="currentColor" opacity="0.6">stores your file</text>
-              <!-- Receiver -->
-              <rect x="270" y="120" width="80" height="50" rx="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
-              <text x="310" y="148" text-anchor="middle" font-size="11" fill="currentColor" font-weight="600">Recipient</text>
-              <!-- Upload arrow -->
-              <path d="M 60 120 Q 100 80 130 65" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr-old)"/>
-              <text x="80" y="100" font-size="10" fill="currentColor" opacity="0.7">1. upload</text>
-              <!-- Download arrow -->
-              <path d="M 230 65 Q 260 80 300 120" fill="none" stroke="currentColor" stroke-width="1.5" marker-end="url(#arr-old)"/>
-              <text x="270" y="100" font-size="10" fill="currentColor" opacity="0.7">2. download</text>
-              <text x="180" y="195" text-anchor="middle" font-size="9.5" fill="currentColor" opacity="0.55">File travels twice. Server sees it. Storage cap. Size limit.</text>
+              <rect x="10" y="130" width="80" height="50" rx="8" fill="var(--color-bg)" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="50" y="158" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">You</text>
+              <text x="50" y="171" text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">browser</text>
+
+              <!-- Recipient -->
+              <rect x="270" y="130" width="80" height="50" rx="8" fill="var(--color-bg)" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="310" y="158" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Recipient</text>
+              <text x="310" y="171" text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">browser</text>
+
+              <!-- Upload arrow (You → Cloud) -->
+              <path d="M 70 130 Q 95 105 120 86" fill="none" stroke="var(--color-fg-muted)" stroke-width="1.5" marker-end="url(#arr-old)"/>
+              <text x="78" y="118" font-size="10" fill="var(--color-fg)" font-weight="600">1. upload</text>
+
+              <!-- Download arrow (Cloud → Recipient) -->
+              <path d="M 240 86 Q 265 105 290 130" fill="none" stroke="var(--color-fg-muted)" stroke-width="1.5" marker-end="url(#arr-old)"/>
+              <text x="248" y="118" font-size="10" fill="var(--color-fg)" font-weight="600">2. download</text>
+
+              <!-- Caption -->
+              <text x="180" y="207" text-anchor="middle" font-size="10.5" fill="var(--color-fg-muted)">File travels twice. Server sees it. Storage cap.</text>
             </svg>
 
             <ul class="mt-6 space-y-2 text-sm text-[var(--color-fg-muted)]">
@@ -239,45 +267,83 @@ const features = [
             </div>
             <h3 class="mt-3 text-xl font-semibold">Direct. End of story.</h3>
 
-            <svg viewBox="0 0 360 200" class="mt-6 w-full h-auto" aria-hidden="true">
+            <!--
+              Paired with the "old way" diagram — same canvas, same node
+              positions. Differences encode the story:
+                * Cloud is small + dashed + secondary (signaling only)
+                * Direct line is the visual hero (accent color, thicker,
+                  with chevrons + lock for "encrypted flow")
+                * Lines use Q with shallow Y offset to avoid the
+                  horizontal-bbox bug (gradients/filters collapse on
+                  degenerate-height paths in Chrome + WebKit)
+            -->
+            <svg viewBox="0 0 360 220" class="mt-6 w-full h-auto" aria-hidden="true">
               <defs>
-                <marker id="arr-new" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
-                  <path d="M0,0 L10,5 L0,10 z" fill="var(--color-accent)" />
+                <marker id="arr-new" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0,0 L11,5.5 L0,11 z" fill="var(--color-accent)" />
                 </marker>
                 <!--
-                  filterUnits=userSpaceOnUse with explicit coords — the previous
-                  filter used bounding-box-relative percentages, which collapsed
-                  to zero on a horizontal-only path (height=0 bbox). Same bug
-                  bit the gradient before this. Both renderers (Chrome + iOS
-                  WebKit) clipped the line to invisible.
+                  filterUnits=userSpaceOnUse with explicit coords — bbox-relative
+                  percentages collapse to zero on near-horizontal paths.
+                  See skill svg-horizontal-path-bbox-bug.
                 -->
-                <filter id="directGlow" filterUnits="userSpaceOnUse" x="80" y="130" width="200" height="30">
-                  <feGaussianBlur stdDeviation="2" result="blur"/>
+                <filter id="directGlow" filterUnits="userSpaceOnUse" x="80" y="135" width="200" height="30">
+                  <feGaussianBlur stdDeviation="2.5" result="blur"/>
                   <feMerge>
                     <feMergeNode in="blur"/>
                     <feMergeNode in="SourceGraphic"/>
                   </feMerge>
                 </filter>
               </defs>
-              <!-- Sender -->
-              <rect x="10" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
-              <text x="50" y="148" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">You</text>
-              <!-- Receiver -->
-              <rect x="270" y="120" width="80" height="50" rx="6" fill="none" stroke="var(--color-fg)" stroke-width="1.5"/>
-              <text x="310" y="148" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Recipient</text>
+
+              <!-- Tiny dashed handshake cloud (secondary — signaling only) -->
+              <ellipse cx="180" cy="50" rx="46" ry="20" fill="none" stroke="var(--color-fg-muted)" stroke-width="1" stroke-dasharray="3 3"/>
+              <text x="180" y="48" text-anchor="middle" font-size="10" fill="var(--color-fg)" font-weight="600">handshake only</text>
+              <text x="180" y="62" text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">no file bytes</text>
+
+              <!-- Faint handshake lines (dashed, subdued — they're not the story) -->
+              <path d="M 70 130 Q 110 105 140 70" fill="none" stroke="var(--color-fg-muted)" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+              <path d="M 290 130 Q 250 105 220 70" fill="none" stroke="var(--color-fg-muted)" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"/>
+
+              <!-- Sender (matches "old way" position exactly) -->
+              <rect x="10" y="130" width="80" height="50" rx="8" fill="var(--color-bg)" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="50" y="158" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">You</text>
+              <text x="50" y="171" text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">browser</text>
+
+              <!-- Recipient -->
+              <rect x="270" y="130" width="80" height="50" rx="8" fill="var(--color-bg)" stroke="var(--color-fg)" stroke-width="1.5"/>
+              <text x="310" y="158" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Recipient</text>
+              <text x="310" y="171" text-anchor="middle" font-size="9" fill="var(--color-fg-muted)">browser</text>
+
               <!--
-                Direct line — drawn as a very shallow arc (control point 1px below)
-                so the path bounding box has non-zero height. Pure-horizontal lines
-                hit SVG filter/gradient bbox edge cases in WebKit. Solid accent
-                stroke + glow filter (userSpaceOnUse so it actually paints).
+                Direct line (THE HERO).
+                Shallow Q-curve (1 px off-axis) keeps the bbox non-degenerate so
+                the glow filter actually renders. Same fix that f0f0d99 codified.
               -->
-              <path d="M 90 145 Q 180 146.5 268 145" fill="none" stroke="var(--color-accent)" stroke-width="3" stroke-linecap="round" marker-end="url(#arr-new)" filter="url(#directGlow)"/>
-              <text x="180" y="133" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Direct, encrypted</text>
-              <!-- Tiny cloud above, faded -->
-              <ellipse cx="180" cy="50" rx="36" ry="16" fill="none" stroke="var(--color-fg-subtle)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
-              <text x="180" y="48" text-anchor="middle" font-size="9" fill="var(--color-fg-subtle)" opacity="0.7">handshake only</text>
-              <text x="180" y="60" text-anchor="middle" font-size="8" fill="var(--color-fg-subtle)" opacity="0.7">(no file bytes)</text>
-              <text x="180" y="195" text-anchor="middle" font-size="9.5" fill="var(--color-fg-muted)">One hop. Zero storage. No size limit.</text>
+              <path d="M 90 155 Q 180 156 268 155" fill="none" stroke="var(--color-accent)" stroke-width="3" stroke-linecap="round" marker-end="url(#arr-new)" filter="url(#directGlow)"/>
+
+              <!-- Flow chevrons along the line (›› feel without animation) -->
+              <g fill="none" stroke="var(--color-accent)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" opacity="0.85">
+                <path d="M 130 151 L 134 155 L 130 159"/>
+                <path d="M 222 151 L 226 155 L 222 159"/>
+              </g>
+
+              <!-- Encryption lock pill (mid-line) -->
+              <g transform="translate(170, 144)">
+                <rect x="0" y="0" width="20" height="22" rx="5" fill="var(--color-bg)" stroke="var(--color-accent)" stroke-width="1.5"/>
+                <!-- Shackle -->
+                <path d="M 6 7 V 4 a 4 4 0 0 1 8 0 V 7" fill="none" stroke="var(--color-accent)" stroke-width="1.4" stroke-linecap="round"/>
+                <!-- Body -->
+                <rect x="4" y="9" width="12" height="10" rx="1.5" fill="var(--color-accent)" opacity="0.18" stroke="none"/>
+                <!-- Keyhole dot -->
+                <circle cx="10" cy="14" r="1.4" fill="var(--color-accent)"/>
+              </g>
+
+              <!-- Direct-encrypted label below the line -->
+              <text x="180" y="190" text-anchor="middle" font-size="11" fill="var(--color-fg)" font-weight="600">Direct, encrypted</text>
+
+              <!-- Caption -->
+              <text x="180" y="207" text-anchor="middle" font-size="10.5" fill="var(--color-fg-muted)">One hop. Zero storage. No size limit.</text>
             </svg>
 
             <ul class="mt-6 space-y-2 text-sm text-[var(--color-fg-muted)]">
