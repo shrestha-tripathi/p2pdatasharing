@@ -1,0 +1,305 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+/**
+ * Privacy Policy — legal/AdSense-grade page.
+ *
+ * Distinct from /privacy (which is the technical privacy-by-design
+ * explainer). This page is the formal legal document that AdSense
+ * reviewers, Google quality raters, and any privacy regulator will look
+ * for. It uses standard legal section structure: data controller,
+ * data collected, lawful basis, retention, third parties, user rights,
+ * cookies, children, contact, changes.
+ *
+ * Both pages link to each other so each serves its purpose.
+ */
+
+const lastUpdated = "June 5, 2026";
+
+const privacyPolicySchema = {
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "@id": `${site.url}/privacy-policy#policy`,
+  url: `${site.url}/privacy-policy`,
+  name: `Privacy Policy — ${site.shortName}`,
+  description: `Legal privacy policy for ${site.shortName}. What we collect, what we don't, your rights under GDPR and CCPA, and how to contact us about your data.`,
+  dateModified: "2026-06-05",
+  publisher: { "@id": `${site.url}/#organization` },
+};
+---
+
+<Layout
+  title="Privacy Policy"
+  description={`Legal privacy policy for ${site.shortName} — what data we collect (almost nothing), how it's processed, your rights under GDPR and CCPA, third-party services, cookies, and how to contact us about your data.`}
+  jsonLd={[privacyPolicySchema]}
+>
+  <Nav />
+
+  <main class="mx-auto max-w-[760px] px-6 md:px-12 py-16 md:py-24">
+    <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">Legal</p>
+    <h1 class="mt-4 text-4xl md:text-5xl font-semibold tracking-tight">
+      Privacy Policy
+    </h1>
+    <p class="mt-4 text-sm text-[var(--color-fg-subtle)]">
+      Last updated: {lastUpdated}
+    </p>
+    <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
+      This page explains what data {site.shortName} collects, how it's used,
+      and your rights regarding it. For a non-legal explanation of <em>why</em>
+      our architecture makes data collection physically impossible for file
+      content, see <a href={`${import.meta.env.BASE_URL}privacy`} class="text-[var(--color-accent)] underline">privacy by design</a>.
+    </p>
+
+    <hr class="my-12 border-[var(--color-border)]" />
+
+    <section class="space-y-10 text-[var(--color-fg-muted)] leading-relaxed">
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          1. Who we are
+        </h2>
+        <p class="mt-3">
+          {site.shortName} ({site.domain}) is operated by <strong class="text-[var(--color-fg)]">{site.author}</strong>,
+          an independent developer based in {site.jurisdiction}. For the purposes
+          of GDPR and similar regulations, {site.author} is the data controller.
+          Contact: <a href={`mailto:${site.contactEmail}`} class="text-[var(--color-accent)] underline">{site.contactEmail}</a>.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          2. Data we do NOT collect
+        </h2>
+        <p class="mt-3">
+          The {site.shortName} architecture is built so that the following are
+          never accessible to us — not even theoretically:
+        </p>
+        <ul class="mt-4 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">File contents</strong> — files
+            stream peer-to-peer over end-to-end DTLS-encrypted WebRTC channels
+            between the sender's and receiver's browsers. No file byte enters
+            any server we operate.</li>
+          <li><strong class="text-[var(--color-fg)]">Filenames or metadata</strong> —
+            never seen, logged, or stored by our infrastructure.</li>
+          <li><strong class="text-[var(--color-fg)]">Chat messages</strong> sent
+            in the in-app chat panel — these travel on the same end-to-end encrypted
+            WebRTC channel.</li>
+          <li><strong class="text-[var(--color-fg)]">User accounts</strong> — there
+            are none. We don't collect names, emails, phone numbers, or any
+            identifying information from users of the transfer tool.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          3. Data we do collect (and why)
+        </h2>
+
+        <h3 class="mt-5 text-lg font-semibold text-[var(--color-fg)]">3.1 Signaling-server data (ephemeral)</h3>
+        <p class="mt-3">
+          To help two browsers find each other on the public internet, our
+          signaling server (a Cloudflare Worker with a Durable Object) briefly
+          handles WebRTC connection metadata:
+        </p>
+        <ul class="mt-3 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">Room IDs</strong> — random
+            opaque strings that don't identify users. Held in memory only
+            while at least one peer is in the room, then discarded.</li>
+          <li><strong class="text-[var(--color-fg)]">WebRTC SDP and ICE
+            candidates</strong> — technical handshake messages containing
+            network endpoint info (IP addresses, ports). Forwarded between
+            peers and not persisted.</li>
+        </ul>
+        <p class="mt-3">
+          This data is held only as long as the room is active and is
+          <strong class="text-[var(--color-fg)]">never written to disk, never
+          logged, and never shared.</strong>
+        </p>
+
+        <h3 class="mt-6 text-lg font-semibold text-[var(--color-fg)]">3.2 Web server access logs</h3>
+        <p class="mt-3">
+          Our static-site host (Cloudflare Pages) may briefly log standard
+          HTTP request metadata for security and abuse prevention: IP address,
+          user agent, requested URL, response status, timestamp. These logs
+          are retained per Cloudflare's policy (typically &lt; 30 days) and
+          are not joined with any other data we hold.
+        </p>
+
+        <h3 class="mt-6 text-lg font-semibold text-[var(--color-fg)]">3.3 Local browser storage (yours, not ours)</h3>
+        <p class="mt-3">
+          {site.shortName} uses your browser's local storage for legitimate
+          functional reasons. None of this leaves your device:
+        </p>
+        <ul class="mt-3 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">localStorage</strong> —
+            theme preference, sound toggle, device nickname, paired-device list.</li>
+          <li><strong class="text-[var(--color-fg)]">Origin Private File System (OPFS)</strong> —
+            partial file data during in-progress transfers, so transfers can
+            resume if the connection drops. Automatically garbage-collected
+            after 7 days.</li>
+          <li><strong class="text-[var(--color-fg)]">Service Worker cache</strong> —
+            offline assets for the Progressive Web App.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          4. Lawful basis (GDPR)
+        </h2>
+        <p class="mt-3">
+          For EU/UK users, our lawful basis for processing the ephemeral
+          signaling-server data and standard web-server access logs is
+          <strong class="text-[var(--color-fg)]">legitimate interest</strong>
+          (GDPR Article 6(1)(f)) — specifically, providing the requested file
+          transfer service and protecting our infrastructure from abuse. No
+          processing is based on consent because no personal data beyond
+          standard internet protocol metadata is collected.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          5. Third-party services
+        </h2>
+        <p class="mt-3">
+          We rely on the following infrastructure providers. Each has its
+          own privacy policy that applies to data they process on our behalf:
+        </p>
+        <ul class="mt-4 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">Cloudflare</strong> —
+            static-site hosting (Pages), edge compute for the signaling server
+            (Workers + Durable Objects), and STUN/TURN fallback for WebRTC
+            NAT traversal. <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">Cloudflare's privacy policy</a>.</li>
+          <li><strong class="text-[var(--color-fg)]">Google STUN</strong> —
+            <code class="font-mono text-[var(--color-fg)]">stun.l.google.com</code>
+            is the default WebRTC STUN server used by most browsers to discover
+            the user's public IP. STUN servers see only the discovery probe,
+            never file content. <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">Google's privacy policy</a>.</li>
+          <li><strong class="text-[var(--color-fg)]">Google AdSense (if shown)</strong> —
+            we may display contextual advertising on content pages (never on
+            the transfer interface) to cover infrastructure costs. AdSense
+            uses cookies and may collect data per
+            <a href="https://policies.google.com/technologies/ads" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">Google's advertising policy</a>. You can opt out via <a href="https://adssettings.google.com/" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">Google Ad Settings</a>.</li>
+        </ul>
+        <p class="mt-3">
+          We do not currently use any third-party analytics, fingerprinting,
+          A/B-testing, or behavioral-tracking services.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          6. Cookies
+        </h2>
+        <p class="mt-3">
+          {site.shortName} sets <strong class="text-[var(--color-fg)]">no first-party
+          cookies</strong> for analytics, advertising, or tracking. All site
+          preferences (theme, sound, etc.) are stored in your browser's
+          localStorage and never sent to us.
+        </p>
+        <p class="mt-3">
+          If we serve AdSense or similar third-party ads on content pages,
+          those services may set their own cookies. You can manage these
+          through your browser settings or by opting out at
+          <a href="https://www.youronlinechoices.com/" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">youronlinechoices.com</a>
+          (EU) or <a href="https://optout.aboutads.info/" target="_blank" rel="noopener noreferrer" class="text-[var(--color-accent)] underline">optout.aboutads.info</a> (US).
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          7. Your rights
+        </h2>
+        <p class="mt-3">
+          Under GDPR (EU/UK), CCPA (California), and similar privacy regulations,
+          you generally have the right to access, rectify, delete, or restrict
+          processing of your personal data, and to data portability and to
+          object to processing.
+        </p>
+        <p class="mt-3">
+          In practice, the amount of personal data we hold about any individual
+          user is effectively zero — we don't have accounts, we don't store
+          file content, and signaling-server data is ephemeral and not joined
+          to any identifier. There is, therefore, very little for us to act on
+          in response to an individual access or deletion request. If you have
+          a specific concern, please email
+          <a href={`mailto:${site.contactEmail}`} class="text-[var(--color-accent)] underline">{site.contactEmail}</a>
+          and we will respond within 30 days.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          8. Children's privacy
+        </h2>
+        <p class="mt-3">
+          {site.shortName} is a general-audience tool. We do not knowingly
+          collect personal data from children under 13 (or under 16 in the EU
+          where applicable). If you believe a child has provided personal data
+          to us, please contact <a href={`mailto:${site.contactEmail}`} class="text-[var(--color-accent)] underline">{site.contactEmail}</a>
+          and we will delete it.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          9. International data transfers
+        </h2>
+        <p class="mt-3">
+          Our infrastructure providers (Cloudflare, Google) operate globally.
+          Standard internet protocol metadata may transit servers in various
+          jurisdictions. We rely on these providers' Standard Contractual
+          Clauses and equivalent safeguards for cross-border transfers.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          10. Data retention
+        </h2>
+        <ul class="mt-3 list-disc pl-6 space-y-2">
+          <li><strong class="text-[var(--color-fg)]">Signaling data</strong> —
+            held only while a room is active; discarded as soon as the room is
+            empty (typically seconds to minutes).</li>
+          <li><strong class="text-[var(--color-fg)]">Web-server access logs</strong> —
+            retained per Cloudflare's policy (typically &lt; 30 days).</li>
+          <li><strong class="text-[var(--color-fg)]">File content and metadata</strong> —
+            never collected, so never retained.</li>
+          <li><strong class="text-[var(--color-fg)]">Local browser storage</strong> —
+            stays on your device; auto-cleared OPFS partials after 7 days; you
+            can clear everything via your browser's site settings at any time.</li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          11. Changes to this policy
+        </h2>
+        <p class="mt-3">
+          We may update this policy as the product evolves. When we do, we'll
+          change the "Last updated" date at the top. Material changes will be
+          announced on the homepage for at least 30 days before taking effect.
+          The current version is always at
+          <a href={`${site.url}/privacy-policy`} class="text-[var(--color-accent)] underline break-all">{site.url}/privacy-policy</a>.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          12. Contact
+        </h2>
+        <p class="mt-3">
+          Questions about this policy, or a privacy request:
+          <a href={`mailto:${site.contactEmail}`} class="text-[var(--color-accent)] underline break-all">{site.contactEmail}</a>.
+          See the <a href={`${import.meta.env.BASE_URL}contact`} class="text-[var(--color-accent)] underline">contact page</a>
+          for all other ways to reach us.
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <Footer />
+</Layout>

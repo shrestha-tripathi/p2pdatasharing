@@ -15,9 +15,11 @@ import { site } from "../site.config";
  * Priority guide:
  *   1.0  — homepage (single most important entry point)
  *   0.8  — high-value landing pages (local-network, install)
- *   0.7  — primary content (how-it-works, blog index)
- *   0.6  — blog posts (long-tail SEO content)
- *   0.5  — secondary content (faq, privacy)
+ *   0.7  — primary content (how-it-works, blog index, about)
+ *   0.6  — blog posts (long-tail SEO content), faq
+ *   0.5  — contact, privacy (technical)
+ *   0.3  — legal documents (privacy-policy, terms) — needed for AdSense
+ *           + trust signals, but not high SEO targets
  */
 export const GET: APIRoute = async () => {
   const today = new Date().toISOString().slice(0, 10);
@@ -29,7 +31,11 @@ export const GET: APIRoute = async () => {
     { path: "/install", priority: "0.8", changefreq: "monthly" },
     { path: "/faq", priority: "0.6", changefreq: "monthly" },
     { path: "/blog", priority: "0.7", changefreq: "weekly" },
+    { path: "/about", priority: "0.7", changefreq: "monthly" },
+    { path: "/contact", priority: "0.5", changefreq: "yearly" },
     { path: "/privacy", priority: "0.5", changefreq: "yearly" },
+    { path: "/privacy-policy", priority: "0.3", changefreq: "yearly" },
+    { path: "/terms", priority: "0.3", changefreq: "yearly" },
   ];
 
   // Auto-include all non-draft blog posts. Each post's pubDate becomes its

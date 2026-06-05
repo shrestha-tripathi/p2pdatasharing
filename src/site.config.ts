@@ -37,6 +37,24 @@ export const site = {
   locale: env.PUBLIC_SITE_LOCALE ?? "en-US",
   twitter: env.PUBLIC_SITE_TWITTER ?? "",
   /**
+   * Public contact email shown on /contact and /privacy-policy.
+   * Set via env so a domain change doesn't require code edits.
+   */
+  contactEmail: env.PUBLIC_SITE_CONTACT_EMAIL ?? "hello@filetransfernow.com",
+  /**
+   * Public GitHub repo URL for the project. Surfaced on /contact, /about,
+   * and /privacy as the canonical "audit the source" link.
+   */
+  githubRepo:
+    env.PUBLIC_SITE_GITHUB_REPO ??
+    "https://github.com/shrestha-tripathi/p2pdatasharing",
+  /**
+   * Jurisdiction whose law governs the Terms & Conditions. Defaults to
+   * India since the author is based there; override via env if the
+   * operating entity changes country.
+   */
+  jurisdiction: env.PUBLIC_SITE_JURISDICTION ?? "India",
+  /**
    * Public WebSocket URL of the signaling server. Used only for SDP/ICE
    * handshake — zero file bytes ever flow through it.
    */

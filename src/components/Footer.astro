@@ -3,22 +3,131 @@ import { site } from "../site.config";
 const year = new Date().getFullYear();
 const base = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
 const b = (p: string) => `${base}${p}`;
+
+/**
+ * Three-column footer grouping: Product / Company / Legal.
+ *
+ * AdSense + general E-E-A-T compliance: About, Contact, Privacy Policy,
+ * and Terms must be reachable from every page (the footer is the global
+ * pattern that satisfies this). The 3-column layout is the universal
+ * SaaS footer convention (Stripe, Linear, Vercel, Notion, etc.).
+ */
+
+const productLinks = [
+  { href: "/", label: "Home" },
+  { href: "/how-it-works", label: "How it works" },
+  { href: "/local-network", label: "Local network" },
+  { href: "/install", label: "Install" },
+  { href: "/transfer", label: "Open app" },
+];
+
+const companyLinks = [
+  { href: "/about", label: "About" },
+  { href: "/blog", label: "Blog" },
+  { href: "/faq", label: "FAQ" },
+  { href: "/contact", label: "Contact" },
+];
+
+const legalLinks = [
+  { href: "/privacy-policy", label: "Privacy Policy" },
+  { href: "/privacy", label: "Privacy by design" },
+  { href: "/terms", label: "Terms & Conditions" },
+];
 ---
 
 <footer class="border-t border-[var(--color-border)] mt-24">
-  <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-    <p class="text-sm text-[var(--color-fg-muted)]">
-      © {year} {site.name} — files never touch a server.
-    </p>
-    <div class="flex flex-wrap gap-5 text-sm">
-      <a href={b("/")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Home</a>
-      <a href={b("/how-it-works")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">How it works</a>
-      <a href={b("/local-network")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Local network</a>
-      <a href={b("/blog")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Blog</a>
-      <a href={b("/faq")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">FAQ</a>
-      <a href={b("/install")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Install</a>
-      <a href={b("/privacy")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">Privacy</a>
-      <a href={b("/transfer")} class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline">App</a>
+  <div class="mx-auto max-w-[1200px] px-6 md:px-12 py-12 md:py-16">
+    <!-- LINK COLUMNS -->
+    <div class="grid gap-10 md:gap-12 grid-cols-2 md:grid-cols-4">
+      <!-- BRAND -->
+      <div class="col-span-2 md:col-span-1">
+        <a href={b("/")} class="inline-flex items-center gap-2 no-underline">
+          <svg width="20" height="20" viewBox="0 0 512 512" fill="none" class="text-[var(--color-fg)]" aria-hidden="true">
+            <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="14" opacity="0.35">
+              <polygon points="256,76 412,166 412,346 256,436 100,346 100,166"/>
+              <polygon points="256,136 360,196 360,316 256,376 152,316 152,196"/>
+            </g>
+            <path d="M110 350 L430 130 L290 380 L240 300 Z" fill="currentColor"/>
+            <path d="M240 300 L430 130 L290 250 Z" fill="currentColor" opacity="0.5"/>
+          </svg>
+          <span class="font-semibold text-[var(--color-fg)]">{site.shortName}</span>
+        </a>
+        <p class="mt-4 text-sm text-[var(--color-fg-muted)] leading-relaxed max-w-xs">
+          Free, browser-based, peer-to-peer file transfer. Your files never touch
+          a server — not even ours.
+        </p>
+      </div>
+
+      <!-- PRODUCT -->
+      <div>
+        <h3 class="text-xs uppercase tracking-[0.08em] text-[var(--color-fg-subtle)] font-semibold">
+          Product
+        </h3>
+        <ul class="mt-4 space-y-3">
+          {productLinks.map((l) => (
+            <li>
+              <a
+                href={b(l.href)}
+                class="text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline transition-colors"
+              >{l.label}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- COMPANY -->
+      <div>
+        <h3 class="text-xs uppercase tracking-[0.08em] text-[var(--color-fg-subtle)] font-semibold">
+          Company
+        </h3>
+        <ul class="mt-4 space-y-3">
+          {companyLinks.map((l) => (
+            <li>
+              <a
+                href={b(l.href)}
+                class="text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline transition-colors"
+              >{l.label}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- LEGAL -->
+      <div>
+        <h3 class="text-xs uppercase tracking-[0.08em] text-[var(--color-fg-subtle)] font-semibold">
+          Legal
+        </h3>
+        <ul class="mt-4 space-y-3">
+          {legalLinks.map((l) => (
+            <li>
+              <a
+                href={b(l.href)}
+                class="text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline transition-colors"
+              >{l.label}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+
+    <!-- BOTTOM ROW -->
+    <div class="mt-12 pt-8 border-t border-[var(--color-border)] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <p class="text-sm text-[var(--color-fg-muted)]">
+        © {year} {site.name} — files never touch a server.
+      </p>
+      <div class="flex items-center gap-5 text-sm">
+        <a
+          href={site.githubRepo}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] no-underline inline-flex items-center gap-1.5"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2-3.2.7-3.87-1.54-3.87-1.54-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.9 10.9 0 015.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.83 1.18 3.09 0 4.42-2.7 5.4-5.26 5.68.41.36.78 1.06.78 2.14 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.56C20.21 21.38 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
+          </svg>
+          GitHub
+        </a>
+      </div>
     </div>
   </div>
 </footer>

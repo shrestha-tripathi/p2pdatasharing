@@ -1,5 +1,14 @@
+# robots.txt — see https://www.robotstxt.org/
+
+# Allow all well-behaved crawlers to index everything except the stateful
+# transfer app surface (which is a JS-heavy peer-to-peer interface, not
+# indexable content). The signaling endpoint is on a separate worker
+# subdomain so doesn't need exclusion here.
+
 User-agent: *
 Allow: /
 Disallow: /transfer
+Disallow: /transfer/
 
+# Sitemap discovery
 Sitemap: https://filetransfernow.com/sitemap.xml

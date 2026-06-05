@@ -1,0 +1,187 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import { site } from "../site.config";
+
+/**
+ * About page — who built this, why, and the philosophy behind it.
+ *
+ * SEO purpose: trust signal for AdSense + Google E-E-A-T (Experience,
+ * Expertise, Authoritativeness, Trustworthiness). Reviewers and Google's
+ * quality raters both check for a real human/team behind the product.
+ */
+
+const aboutSchema = {
+  "@context": "https://schema.org",
+  "@type": "AboutPage",
+  "@id": `${site.url}/about#about`,
+  url: `${site.url}/about`,
+  name: `About ${site.shortName}`,
+  description: `Who built ${site.shortName} and why — the philosophy of zero-server, peer-to-peer file transfer.`,
+  publisher: { "@id": `${site.url}/#organization` },
+};
+---
+
+<Layout
+  title="About — why we built a server-free file transfer tool"
+  description={`${site.shortName} is a peer-to-peer file transfer tool built on the principle that your files should never touch someone else's server. Built by ${site.author}, free and open-source forever.`}
+  jsonLd={[aboutSchema]}
+>
+  <Nav />
+
+  <main class="mx-auto max-w-[760px] px-6 md:px-12 py-16 md:py-24">
+    <p class="text-sm uppercase tracking-[0.06em] text-[var(--color-fg-subtle)]">About</p>
+    <h1 class="mt-4 text-4xl md:text-6xl font-semibold tracking-tight">
+      We built the file transfer tool we wanted to use.
+    </h1>
+    <p class="mt-6 text-lg text-[var(--color-fg-muted)]">
+      {site.shortName} is a peer-to-peer file transfer tool built on a simple idea:
+      your files should never live on someone else's server, even for a few hours.
+    </p>
+
+    <hr class="my-12 border-[var(--color-border)]" />
+
+    <section class="space-y-10 text-[var(--color-fg-muted)] leading-relaxed">
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          The problem we couldn't stop thinking about
+        </h2>
+        <p class="mt-3">
+          Every existing file transfer service does the same fundamentally wasteful
+          thing: it uploads your file to a server, holds it there for hours or days,
+          then lets the recipient download it. Your bandwidth bill pays for the
+          round trip twice. Their storage bill pays for keeping a copy of your
+          file you didn't ask them to keep. And worst of all — your file sits on
+          someone else's machine, indexable, scannable, breachable.
+        </p>
+        <p class="mt-3">
+          WeTransfer caps free transfers at 2 GB. Smash caps at 5 GB but throttles
+          you. Google Drive needs an account. Dropbox needs an account. AirDrop
+          only works between Apple devices on the same network. Snapdrop only
+          works on the same network. None of these solve the actual user need:
+          <strong class="text-[var(--color-fg)]">"I just want to send this big
+          file to that other person, now, without uploading it anywhere."</strong>
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          What we built instead
+        </h2>
+        <p class="mt-3">
+          {site.shortName} uses <strong class="text-[var(--color-fg)]">WebRTC</strong> —
+          the same peer-to-peer technology that powers Google Meet and Discord
+          voice — to open a direct, end-to-end encrypted channel between two
+          browsers. Files stream straight from sender to receiver. There is no
+          upload step. There is no server hop. There is no file-size limit. There
+          is no signup.
+        </p>
+        <p class="mt-3">
+          We run a tiny signaling server (a Cloudflare Worker) that helps the two
+          browsers find each other on the public internet. Once they're connected,
+          the signaling server is idle and never sees a byte of your file. We've
+          tested transfers of 100+ GB on real networks. The only real limit is
+          your internet speed and the recipient's free disk space.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          Our principles
+        </h2>
+        <ul class="mt-4 list-disc pl-6 space-y-3">
+          <li>
+            <strong class="text-[var(--color-fg)]">Your bytes are your business.</strong>
+            We don't store, scan, log, or analyze your file content — ever. The
+            architecture makes it physically impossible for us to read your data,
+            not just a policy promise.
+          </li>
+          <li>
+            <strong class="text-[var(--color-fg)]">No accounts, ever.</strong>
+            Accounts are a tax. They turn a 10-second task into a 3-minute one.
+            They become a security liability. They become a marketing CRM. We
+            built the whole product around not having them.
+          </li>
+          <li>
+            <strong class="text-[var(--color-fg)]">No size limits, ever.</strong>
+            "Upgrade to Pro to send larger files" is the cloud-storage business
+            model. Since we don't store anything, we have nothing to charge for.
+          </li>
+          <li>
+            <strong class="text-[var(--color-fg)]">Works everywhere a browser does.</strong>
+            iPhone to Windows. Android to Mac. Linux to ChromeOS. Same flow,
+            same code, no installer, no app store.
+          </li>
+          <li>
+            <strong class="text-[var(--color-fg)]">Open and honest.</strong>
+            The source code is open. The encryption is standard. The architecture
+            is documented on <a href={`${import.meta.env.BASE_URL}how-it-works`} class="text-[var(--color-accent)] underline">how it works</a>
+            and <a href={`${import.meta.env.BASE_URL}privacy`} class="text-[var(--color-accent)] underline">privacy</a>.
+            Nothing is hidden behind "trust us."
+          </li>
+        </ul>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          Who built this
+        </h2>
+        <p class="mt-3">
+          {site.shortName} is built and maintained by <strong class="text-[var(--color-fg)]">{site.author}</strong>,
+          an independent software engineer based in India. It started as a weekend
+          project to scratch a personal itch — sending a 40 GB video file to a
+          friend without paying WeTransfer's "Pro" upcharge — and grew into a
+          full open-source tool used by people all over the world.
+        </p>
+        <p class="mt-3">
+          There is no company. There is no investor. There is no roadmap meeting.
+          Just one person who thinks file transfer should be free, fast, private,
+          and unlimited — and the code to prove it.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          How we keep this free
+        </h2>
+        <p class="mt-3">
+          Because we don't store your files, our infrastructure cost is genuinely
+          tiny — a small Cloudflare Worker for signaling and the static page
+          hosting. We may show unobtrusive contextual ads on content pages
+          (never on the transfer interface itself) to cover server costs. We will
+          never charge you to send larger files, faster files, or more files.
+          We will never sell or share user data — because we don't collect any.
+        </p>
+      </div>
+
+      <div>
+        <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">
+          Get in touch
+        </h2>
+        <p class="mt-3">
+          Found a bug? Have a feature idea? Just want to say hi? See the
+          <a href={`${import.meta.env.BASE_URL}contact`} class="text-[var(--color-accent)] underline">contact page</a>
+          for all the ways to reach us.
+        </p>
+      </div>
+    </section>
+
+    <div class="mt-16 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-6 md:p-8">
+      <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)]">
+        Try it now
+      </h2>
+      <p class="mt-3 text-[var(--color-fg-muted)]">
+        Send a file in under 10 seconds. No signup. No upload. No limit.
+      </p>
+      <a
+        href={`${import.meta.env.BASE_URL}transfer`}
+        class="mt-6 inline-flex h-10 items-center rounded-md bg-[var(--color-fg)] px-5 text-sm font-medium text-[var(--color-bg)] no-underline transition-opacity hover:opacity-90"
+      >
+        Send a file now →
+      </a>
+    </div>
+  </main>
+
+  <Footer />
+</Layout>
