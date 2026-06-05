@@ -1455,10 +1455,10 @@ import { site } from "../site.config";
         <div class="mt-3 h-2 w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]">
           <div class="h-full w-0 bg-[var(--color-accent)] transition-[width] duration-150" data-field="bar"></div>
         </div>
-        <div class="mt-3 flex justify-between text-xs text-[var(--color-fg-muted)] tabular-nums">
-          <span data-field="bytes">0 B / —</span>
-          <span data-field="rate">0 B/s</span>
-          <span data-field="eta">ETA —</span>
+        <div class="mt-3 flex justify-between items-baseline gap-3 text-xs text-[var(--color-fg-muted)] tabular-nums">
+          <span data-field="bytes" class="truncate">0 B / —</span>
+          <span data-field="rate" class="text-sm font-semibold text-[var(--color-fg)] tabular-nums whitespace-nowrap" data-rate-active="0">0 B/s</span>
+          <span data-field="eta" class="whitespace-nowrap">ETA —</span>
         </div>
         <div data-field="action" class="mt-3 hidden"></div>
       `;
@@ -1497,6 +1497,14 @@ import { site } from "../site.config";
       row.bar.style.width = `${pct}%`;
       row.bytes.textContent = `${formatBytes(p.bytes)} / ${formatBytes(p.total)}`;
       row.rate.textContent = formatRate(p.ratePerSec);
+      // Visually highlight the rate when actively moving — accent color for
+      // live throughput, muted when stalled or paused. Makes "the transfer
+      // is happening RIGHT NOW" obvious at a glance.
+      if (p.ratePerSec > 1024) {
+        row.rate.style.color = "var(--color-accent)";
+      } else {
+        row.rate.style.color = "";
+      }
       row.eta.textContent = `ETA ${formatEta(p.etaSec)}`;
       // Track peak — ignore the initial 0s and any wildly-spiking single-tick
       // values during channel buffering by only counting rates above 1 KB/s.
