@@ -128,6 +128,18 @@ export class TeleportSession {
   /** Set true after we've declared a stall so the next reconnect path runs. */
   private heartbeatStalled = false;
 
+  // ── ICE restart (network-switch survival) ────────────────────────
+  /**
+   * Max time we'll wait for an ICE restart attempt to land us back in
+   * "connected" before declaring the restart failed and falling through
+   * to whatever the page-level recovery does. Covers worst-case TURN
+   * re-allocation + cellular handoff (~2-8s typical).
+   */
+  private static readonly ICE_RESTART_TIMEOUT_MS = 20_000;
+  /** True between createOffer({iceRestart:true}) and the next "connected" state. */
+  private iceRestartInFlight = false;
+  private iceRestartTimer: ReturnType<typeof setTimeout> | null = null;
+
   private emitDiag() {
     const wsState: DiagSnapshot["ws"] = !this.ws
       ? "idle"
@@ -191,6 +203,7 @@ export class TeleportSession {
         if (!this.isParanoid) this.startConnectTimer();
       } else if (s === "connected") {
         this.clearConnectTimer();
+        this.clearIceRestartTimer();
         this.emitter.emit("state", "connected");
         this.closeSignaling();
       } else if (s === "disconnected") {
@@ -670,10 +683,100 @@ export class TeleportSession {
     return this.dataChannel;
   }
 
+  /** Current role (sender/receiver). Page-level recovery logic needs this. */
+  get currentRole(): PeerRole {
+    return this.role;
+  }
+
+  /** True while an ICE restart is mid-flight. Surface as "Reconnecting…" in UI. */
+  get isRestartingIce(): boolean {
+    return this.iceRestartInFlight;
+  }
+
+  /**
+   * Recover from a network change without losing the data channel.
+   *
+   * Called by the page when `window.online` fires or the PC enters
+   * `"disconnected"`. Sender-only — receiver auto-handles the renegotiated
+   * offer through the existing `ws.onmessage` "offer" branch (WebRTC PCs
+   * support re-offering natively).
+   *
+   * Idempotent: subsequent calls during an in-flight restart are no-ops.
+   * Cooldown / dedup at the call site (page layer) is also recommended.
+   */
+  async restartIce(): Promise<void> {
+    if (this.destroyed) return;
+    if (this.role !== "sender") return;
+    if (this.isParanoid) return;             // paranoid mode is human-paced
+    if (this.iceRestartInFlight) return;
+    if (!this.roomId) return;
+
+    const s = this.peer.connectionState;
+    if (s === "connected" || s === "closed") return;
+
+    this.iceRestartInFlight = true;
+    this.emitter.emit("log", `ICE restart starting (peer state: ${s})`);
+    // Tell the UI we're reconnecting — caller will surface a friendlier
+    // status. Emitting "signaling" reuses the same code path that handles
+    // initial handshake (status pill, spinner, etc.).
+    this.emitter.emit("state", "signaling");
+
+    try {
+      // Network change usually killed the signaling WS too. Reopen it
+      // before we have anything to send through it.
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        await this.openSignaling(this.roomId);
+      }
+
+      // Reset candidate accounting — we're about to gather a fresh set
+      // over the new network path. Keeping `candidatesReceived` so diag
+      // stats reflect everything we ever heard, not just the latest gen.
+      this.cachedCandidates = [];
+      this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+
+      // peer.restartIce() is the modern entry point (Chrome 77+, Safari
+      // 14+, Firefox 70+). Older browsers fall through to the
+      // createOffer({iceRestart:true}) below, which still works.
+      try {
+        if (typeof this.peer.restartIce === "function") {
+          this.peer.restartIce();
+        }
+      } catch { /* tolerate; createOffer below is the actual trigger */ }
+
+      const offer = await this.peer.createOffer({ iceRestart: true });
+      await this.peer.setLocalDescription(offer);
+      this.cachedOffer = offer;
+      this.sendSignal({ type: "offer", payload: offer });
+
+      // Cap the recovery window — if the PC doesn't reach "connected"
+      // by then, emit "failed" so page-level recovery (rebuild room,
+      // lobby reconnect, etc.) can take over.
+      this.iceRestartTimer = setTimeout(() => {
+        if (this.peer.connectionState !== "connected") {
+          this.emitter.emit("log", "ICE restart timed out");
+          this.emitter.emit("state", "failed");
+        }
+        this.clearIceRestartTimer();
+      }, TeleportSession.ICE_RESTART_TIMEOUT_MS);
+    } catch (err) {
+      this.clearIceRestartTimer();
+      this.emitter.emit("error", new Error(`ICE restart failed: ${String(err)}`));
+    }
+  }
+
+  private clearIceRestartTimer(): void {
+    if (this.iceRestartTimer !== null) {
+      clearTimeout(this.iceRestartTimer);
+      this.iceRestartTimer = null;
+    }
+    this.iceRestartInFlight = false;
+  }
+
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
     this.clearConnectTimer();
+    this.clearIceRestartTimer();
     this.closeSignaling();
     try { this.dataChannel?.close(); } catch { /* noop */ }
     try { this.peer.close(); } catch { /* noop */ }
