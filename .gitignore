@@ -28,3 +28,7 @@ pnpm-debug.log*
 # OS
 .DS_Store
 Thumbs.db
+
+# TURN setup — generated per-machine; contains Azure RG + VM IP, not secret
+# but version-control noise
+scripts/turn-azure/.turn-context
