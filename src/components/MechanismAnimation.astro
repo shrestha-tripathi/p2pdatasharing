@@ -45,34 +45,84 @@
       <div class="device-shadow" aria-hidden="true"></div>
     </div>
 
-    <!-- The wire between them -->
-    <svg class="wire" viewBox="0 0 400 200" preserveAspectRatio="none" aria-hidden="true">
+    <!-- The wire between them.
+         viewBox is 400x80 (narrow + shallow) so the SVG arc reads as a real
+         arc even when stretched horizontally to fit a wide desktop container.
+         preserveAspectRatio="none" stretches X-only effectively because we
+         match the container height (200px) ≈ viewBox height (×2.5 scale).
+         The Q control point sits BELOW the viewBox top edge (y=-30) so the
+         curve depth survives that stretch and is still ~25% of the container
+         height at 1200px-wide desktop layouts.
+
+         Packets are SVG <circle> children moved along the wire path via
+         <animateMotion mpath="#wirePath">. Doing the packet motion inside
+         this SVG (not absolute-positioned DOM nodes) means they always
+         track the wire perfectly at any viewport width — the prior CSS
+         offset-path approach failed on desktop because the wire stretched
+         while the packets followed a fixed-pixel path. -->
+    <svg class="wire" viewBox="0 0 400 80" preserveAspectRatio="none" aria-hidden="true">
       <defs>
         <linearGradient id="wireGradient" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stop-color="var(--color-accent)" stop-opacity="0.65" />
           <stop offset="50%" stop-color="var(--color-accent)" stop-opacity="1" />
           <stop offset="100%" stop-color="var(--color-accent)" stop-opacity="0.65" />
         </linearGradient>
-        <linearGradient id="wireSolid" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stop-color="var(--color-accent)" />
-          <stop offset="100%" stop-color="var(--color-accent)" />
-        </linearGradient>
+        <!-- Shared path used by both the wire stroke and the packet motion -->
+        <path id="wirePath" d="M 0 70 Q 200 -10 400 70" />
       </defs>
       <!-- Base dashed line (the "potential" connection) -->
-      <path class="wire-base"
-            d="M 0 100 Q 200 40 400 100"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-dasharray="4 6"
-            opacity="0.55" />
+      <use href="#wirePath"
+           class="wire-base"
+           fill="none"
+           stroke="currentColor"
+           stroke-width="1.5"
+           stroke-dasharray="4 6"
+           opacity="0.55"
+           vector-effect="non-scaling-stroke" />
       <!-- Solid energized wire that draws on -->
-      <path class="wire-live"
-            d="M 0 100 Q 200 40 400 100"
-            fill="none"
-            stroke="url(#wireGradient)"
-            stroke-width="3"
-            stroke-linecap="round" />
+      <use href="#wirePath"
+           class="wire-live"
+           fill="none"
+           stroke="url(#wireGradient)"
+           stroke-width="3"
+           stroke-linecap="round"
+           vector-effect="non-scaling-stroke" />
+      <!-- Packets — each one walks along #wirePath via <animateMotion>.
+           Stagger via begin offsets so packets stream rather than overlap.
+           Note: r is in viewBox units (so it shrinks with preserveAspectRatio
+           on the Y axis when stretched X-only); set via radial CSS below. -->
+      <g class="wire-packets">
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="2.60s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="2.78s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="2.96s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="3.14s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="3.32s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+        <circle class="wire-packet" cx="0" cy="0" r="3">
+          <animateMotion dur="2.3s" repeatCount="indefinite" begin="3.50s">
+            <mpath href="#wirePath" />
+          </animateMotion>
+        </circle>
+      </g>
     </svg>
 
     <!-- Cloud server callout — fades out to emphasize "server stays out" -->
@@ -82,16 +132,6 @@
       </svg>
       <div class="cloud-label">Signaling only</div>
       <div class="cloud-sublabel">No files pass here</div>
-    </div>
-
-    <!-- Packet stream — 6 packets that fly across in sequence -->
-    <div class="packet-stream" aria-hidden="true">
-      <span class="packet" style="--i: 0">●</span>
-      <span class="packet" style="--i: 1">●</span>
-      <span class="packet" style="--i: 2">●</span>
-      <span class="packet" style="--i: 3">●</span>
-      <span class="packet" style="--i: 4">●</span>
-      <span class="packet" style="--i: 5">●</span>
     </div>
 
     <!-- Encryption ribbon — appears mid-wire during the "lock" phase -->
@@ -381,31 +421,38 @@
     letter-spacing: 0.02em;
   }
 
-  /* ---------- Packet stream ---------- */
-  .packet-stream {
-    position: absolute;
-    top: 50%;
-    left: 24%;
-    right: 24%;
-    width: 52%;
-    height: 0;
-    transform: translateY(-50%) translateZ(15px);
-    pointer-events: none;
+  /* ---------- Wire packets (SVG circles, follow #wirePath via animateMotion) ----------
+     Replaces the previous absolute-positioned DOM ●s with SVG circles
+     animated by <animateMotion mpath="#wirePath">. SVG-native motion is
+     viewBox-relative, so packets follow the curve perfectly regardless of
+     the wire's stretched aspect ratio. */
+  .wire-packets {
+    /* Pull the circles slightly forward in 3D so the glow sits above the
+       wire stroke (which is at translateZ(10px) via .wire). */
+    transform: translateZ(2px);
   }
 
-  .packet {
-    position: absolute;
-    left: 0;
-    top: 0;
-    font-size: 10px;
-    line-height: 1;
-    color: var(--color-accent);
-    text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 60%, transparent);
+  .wire-packet {
+    fill: var(--color-accent);
+    /* Soft glow — SVG filter would be more accurate but a multi-stop
+       drop-shadow approximates the bloom and avoids a filter cost. */
+    filter:
+      drop-shadow(0 0 4px color-mix(in srgb, var(--color-accent) 80%, transparent))
+      drop-shadow(0 0 9px color-mix(in srgb, var(--color-accent) 45%, transparent));
+    /* Fade in/out at the start/end of the journey so packets appear and
+       disappear at the endpoints instead of popping. Keyed at the same
+       beats as the wire-draw / lock-pop / enc-pop animations so the whole
+       sequence stays in lockstep. The 2.3s duration matches the
+       animateMotion dur= on each circle. */
     opacity: 0;
-    animation: packet-fly 2.3s ease-in-out infinite;
-    animation-delay: calc(2.6s + var(--i) * 0.18s);
-    will-change: left, top, opacity;
+    animation: wire-packet-fade 2.3s ease-in-out infinite;
   }
+  .wire-packet:nth-child(1) { animation-delay: 2.60s; }
+  .wire-packet:nth-child(2) { animation-delay: 2.78s; }
+  .wire-packet:nth-child(3) { animation-delay: 2.96s; }
+  .wire-packet:nth-child(4) { animation-delay: 3.14s; }
+  .wire-packet:nth-child(5) { animation-delay: 3.32s; }
+  .wire-packet:nth-child(6) { animation-delay: 3.50s; }
 
   /* ---------- Encryption badge ---------- */
   .encryption-badge {
@@ -524,13 +571,12 @@
     100%      { opacity: 0; }
   }
 
-  /* Packets fly along the wire path — `left` % is relative to .packet-stream */
-  @keyframes packet-fly {
-    0%   { opacity: 0; left: 0%;   top: 0px;   }
-    10%  { opacity: 1; left: 10%;  top: -10px; }
-    50%  { opacity: 1; left: 50%;  top: -26px; }
-    90%  { opacity: 1; left: 90%;  top: -10px; }
-    100% { opacity: 0; left: 100%; top: 0px;   }
+  /* Wire packets fade in/out at start/end of their motion-path journey */
+  @keyframes wire-packet-fade {
+    0%   { opacity: 0; }
+    10%  { opacity: 1; }
+    90%  { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   /* Progress bar — sender fills, then a sec later receiver matches */
@@ -579,15 +625,18 @@
     .cloud-server,
     .device-lock,
     .encryption-badge,
-    .packet,
+    .wire-packet,
     .device-progress .bar,
     .cap {
       animation: none !important;
     }
+    /* Stop the SVG <animateMotion> on packets — pin them along the wire. */
+    .wire-packet animateMotion { begin: indefinite !important; }
     .wire-live { stroke-dashoffset: 0; opacity: 1; }
     .cloud-server { opacity: 0.5; }
     .device-lock { opacity: 1; transform: scale(1); }
     .encryption-badge { opacity: 1; }
+    .wire-packet { opacity: 1; }
     .device-progress .bar { width: 100%; }
     .cap-0 { opacity: 1; } /* show only the first caption when reduced */
     .device.sender { transform: translateY(-50%) rotateY(14deg); }
