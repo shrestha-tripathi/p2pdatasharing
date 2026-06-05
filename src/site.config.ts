@@ -54,7 +54,7 @@ export const site = {
    * Public contact email shown on /contact and /privacy-policy.
    * Set via env so a domain change doesn't require code edits.
    */
-  contactEmail: env.PUBLIC_SITE_CONTACT_EMAIL ?? "hello@filetransfernow.com",
+  contactEmail: env.PUBLIC_SITE_CONTACT_EMAIL ?? "shrestha.tripathi@gmail.com",
   /**
    * Public GitHub repo URL for the project. Surfaced on /contact, /about,
    * and /privacy as the canonical "audit the source" link.
