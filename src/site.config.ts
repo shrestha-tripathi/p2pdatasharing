@@ -8,11 +8,25 @@
 
 const env = import.meta.env;
 
+/**
+ * Resolve the canonical site URL. A stale `PUBLIC_SITE_URL` env var (e.g.
+ * left over from the pre-domain Cloudflare Pages deploy that pointed at
+ * `*.pages.dev`) would corrupt every canonical link, OG tag, and sitemap
+ * entry — so we explicitly reject any `.pages.dev` value and fall back to
+ * the production domain. Override is still honored for any legit custom URL.
+ */
+const rawSiteUrl = env.PUBLIC_SITE_URL ?? "https://filetransfernow.com";
+const siteUrl = /\.pages\.dev/i.test(rawSiteUrl)
+  ? "https://filetransfernow.com"
+  : rawSiteUrl;
+
 export const site = {
   name: env.PUBLIC_SITE_NAME ?? "FileTransferNow",
   shortName: env.PUBLIC_SITE_SHORT_NAME ?? "FileTransferNow",
-  domain: env.PUBLIC_SITE_DOMAIN ?? "filetransfernow.com",
-  url: env.PUBLIC_SITE_URL ?? "https://filetransfernow.com",
+  domain: /\.pages\.dev/i.test(env.PUBLIC_SITE_DOMAIN ?? "")
+    ? "filetransfernow.com"
+    : (env.PUBLIC_SITE_DOMAIN ?? "filetransfernow.com"),
+  url: siteUrl,
   /**
    * Short memorable tagline shown in hero + OG cards.
    * 3-4 words, positions us as the anti-cloud option.
