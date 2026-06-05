@@ -1,0 +1,30 @@
+# Cloudflare Pages _headers file
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+# --------------------------------------------------------------------------
+# Noindex the .pages.dev infrastructure domain(s)
+# --------------------------------------------------------------------------
+# Cloudflare Pages always serves the site at the .pages.dev hostname AND
+# at any custom domain attached to the project. That means the same HTML
+# is reachable at both:
+#
+#   https://filetransfernow.com         (canonical, indexable)
+#   https://p2pdatasharing.pages.dev    (infra preview, NOT indexable)
+#
+# Google treats this as duplicate content and may split ranking signal
+# across both, or pick the wrong domain as canonical. Same risk applies
+# to per-branch / per-commit preview deploys at *.p2pdatasharing.pages.dev.
+#
+# Fix: send `X-Robots-Tag: noindex` on every response served from the
+# .pages.dev hostnames. The rule is hostname-scoped (full URL prefix), so
+# requests to filetransfernow.com don't match and stay fully indexable.
+#
+# Combined with the canonical <link> in Layout.astro (which always points
+# at site.url = the .com domain), this fully de-prioritizes the preview
+# infra in SERPs.
+
+https://p2pdatasharing.pages.dev/*
+  X-Robots-Tag: noindex
+
+https://*.p2pdatasharing.pages.dev/*
+  X-Robots-Tag: noindex
