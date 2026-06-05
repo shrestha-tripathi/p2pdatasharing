@@ -69,8 +69,8 @@ const b = (p: string) => `${base}${p}`;
       ) : (
         <button
           type="button"
-          onclick="location.reload()"
-          title="Reload app"
+          data-reload-app
+          title="Reload app — clears the current room and starts fresh"
           aria-label="Reload app"
           class="inline-flex h-9 items-center gap-1.5 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] transition-opacity hover:opacity-90"
         >
@@ -104,5 +104,31 @@ const b = (p: string) => `${base}${p}`;
       if (window.__setTheme) window.__setTheme(cur === "dark" ? "light" : "dark");
     });
     window.addEventListener("themechange", sync);
+  })();
+</script>
+
+<!--
+  Reload-app button: scrubs the URL (query + hash) so the next load starts
+  from a clean /transfer with no auto-rejoin on a stale room id, then
+  forces a hard navigation (no bfcache) so the WebRTC session is torn
+  down for real. Persistent prefs in localStorage (display name, sound,
+  theme) are intentionally kept — they're cross-session settings, not
+  per-room state.
+-->
+<script is:inline>
+  (function () {
+    var btn = document.querySelector("[data-reload-app]");
+    if (!btn) return;
+    btn.addEventListener("click", function () {
+      try {
+        // location.pathname keeps the BASE_URL prefix correct on GH Pages
+        // and bare-root setups alike. assign() is a true navigation so
+        // RTCPeerConnection + Worker + OPFS handles are released cleanly.
+        var url = window.location.pathname;
+        window.location.assign(url);
+      } catch (_) {
+        window.location.reload();
+      }
+    });
   })();
 </script>
