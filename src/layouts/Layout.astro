@@ -109,6 +109,24 @@ const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
     ))}
 
     <meta name="generator" content={Astro.generator} />
+
+    {/*
+      Google Analytics 4 — only injected in production builds with a configured
+      measurement ID. Gating on import.meta.env.PROD keeps localhost dev traffic
+      out of the analytics property.
+    */}
+    {import.meta.env.PROD && site.gaId && (
+      <>
+        <script async src={`https://www.googletagmanager.com/gtag/js?id=${site.gaId}`}></script>
+        <script is:inline define:vars={{ gaId: site.gaId }}>
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+          gtag('config', gaId);
+        </script>
+      </>
+    )}
+
     <script is:inline>
       // Register service worker (PWA + Web Share Target)
       if ("serviceWorker" in navigator) {

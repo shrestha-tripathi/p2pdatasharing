@@ -59,6 +59,13 @@ export const site = {
    * handshake — zero file bytes ever flow through it.
    */
   signalingUrl: env.PUBLIC_SIGNALING_URL ?? "ws://localhost:8080",
+  /**
+   * Google Analytics 4 Measurement ID (format: G-XXXXXXXXXX). Empty string
+   * disables the gtag.js snippet entirely — useful for forks and self-hosts.
+   * Only injected in production builds so localhost dev never pollutes
+   * the analytics property.
+   */
+  gaId: env.PUBLIC_GA_MEASUREMENT_ID ?? "G-S9DSNFWGGF",
 } as const;
 
 export type SiteConfig = typeof site;
