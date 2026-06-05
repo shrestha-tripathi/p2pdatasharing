@@ -78,6 +78,14 @@ export interface TransferEvents {
   sendRetry: RetryStatus;
   /** User cancelled the send via FileTransfer.cancel(id). */
   sendCancelled: { id: string };
+  /**
+   * Fired synchronously the moment cancel(id) is called — before the loop
+   * has actually torn down. Lets the UI lock the cancel button into a
+   * transitional state and arm a watchdog timer in case the loop is slow
+   * to observe cancellation (rare; only happens if both waitForBuffer
+   * AND the wake-up race lose to a 0ms timer somehow).
+   */
+  sendCancelling: { id: string };
   receiveStart: FileMeta & { resumedFrom?: number };
   receiveProgress: TransferProgress;
   receiveComplete: { meta: FileMeta; file: File };
@@ -142,6 +150,14 @@ export class FileTransfer {
 
   /** IDs the user has explicitly cancelled — checked between retry attempts. */
   private cancelledIds = new Set<string>();
+  /**
+   * Wake-up callbacks registered by long-lived awaits inside the send loop
+   * (waitForBuffer / drainBuffer) so cancel() can interrupt them within
+   * milliseconds instead of waiting for the buffer to organically drain.
+   * Keyed by file id; multiple awaits per file are not currently overlapping,
+   * but the map allows future parallel-file sends without rework.
+   */
+  private pendingCancelWakes = new Map<string, () => void>();
 
   /**
    * Tail of the message-processing chain. Serializes ALL incoming
@@ -259,6 +275,19 @@ export class FileTransfer {
         // map doesn't bloat across retries (the timeout would catch it
         // eventually, but only after RESUME_ANSWER_TIMEOUT_MS extra ms).
         if (meta.id) this.pendingResumes.delete(meta.id);
+        // Cancel always wins over retry — even if the channel is still
+        // open (e.g. user cancelled during waitForBuffer mid-chunk), we
+        // must NOT loop around to send the next chunk. Without this
+        // early-out the retry loop would either retry forever (channel
+        // open, sendOnce throws on every attempt because cancelledIds
+        // still has the id) or fall through to emit("error") which
+        // leaves the UI stuck on "Cancelling…" — sendCancelled never
+        // fires from this branch.
+        if (meta.id && this.cancelledIds.has(meta.id)) {
+          this.cancelledIds.delete(meta.id);
+          this.emitter.emit("sendCancelled", { id: meta.id });
+          return;
+        }
         // If channel is definitely closed, wait for re-open (or timeout) and retry.
         const ch = this.session.channel;
         if (!ch || ch.readyState !== "open") {
@@ -298,16 +327,32 @@ export class FileTransfer {
    * intercept, observe the cancelledIds membership, and emit sendCancelled
    * cleanly. UI should always wait for sendCancelled / error / sendComplete
    * before tearing down its row state.
+   *
+   * Cancel must be responsive within ~100ms even when:
+   *   - the data channel buffer is full (waitForBuffer suspends the loop on
+   *     a `bufferedamountlow` listener that may not fire for many seconds);
+   *   - the final chunk has been queued and we're inside drainBuffer waiting
+   *     for the receiver to ack;
+   *   - we're waiting on the resume-answer round trip.
+   *
+   * For all three cases we fire any registered cancel-wake callback so the
+   * suspended await resolves immediately; the very next ch.send() / loop
+   * iteration then observes cancelledIds and throws into the retry loop
+   * which emits sendCancelled. Also emits a synchronous sendCancelling
+   * event so the UI can lock the button into a transitional state and
+   * arm a watchdog timer.
    */
   cancel(id: string): void {
     this.cancelledIds.add(id);
-    // If we're currently waiting on a resumeAnswer, kick it loose so the
-    // sender thread doesn't sit for up to 12s before noticing the cancel.
-    const resolver = this.pendingResumes.get(id);
-    if (resolver) {
-      resolver(0); // resolves the awaitResumeAnswer promise; the next
-                   // ch.send() will throw if channel was force-closed
-    }
+    this.emitter.emit("sendCancelling", { id });
+    // 1) If we're waiting on the receiver's resumeAnswer, kick it loose.
+    //    Otherwise we'd sit for up to RESUME_ANSWER_TIMEOUT_MS (12s).
+    const resumeResolver = this.pendingResumes.get(id);
+    if (resumeResolver) resumeResolver(0);
+    // 2) If the send loop is parked inside waitForBuffer / drainBuffer,
+    //    wake it so it can observe cancelledIds on the next tick.
+    const wake = this.pendingCancelWakes.get(id);
+    if (wake) wake();
   }
 
   /**
@@ -372,7 +417,13 @@ export class FileTransfer {
         etaSec: 0,
         resumedFrom: sliceFrom,
       });
-      await this.drainBuffer(ch);
+      // Even on the "already complete" branch, honor cancel so the UI
+      // doesn't sit stuck if the user clicked Cancel while we were
+      // negotiating the resume handshake.
+      const drainResult = await this.drainBuffer(ch, meta.id);
+      if (drainResult === "cancelled") {
+        throw new Error("transfer cancelled by user");
+      }
       this.emitter.emit("sendComplete", meta);
       return;
     }
@@ -389,14 +440,23 @@ export class FileTransfer {
         const buf = new ArrayBuffer(slice.byteLength);
         new Uint8Array(buf).set(slice);
 
-        await this.waitForBuffer(ch);
-        if (ch.readyState !== "open") {
+        // Cancel-aware buffer wait. Returns a discriminator instead of
+        // void so we can short-circuit on cancel/close within ~100ms
+        // even if `bufferedamountlow` would have taken multiple seconds
+        // to fire. See waitForBuffer() comment for the full contract.
+        const waitResult = await this.waitForBuffer(ch, meta.id);
+        if (waitResult === "cancelled") {
+          try { reader.cancel(); } catch { /* ignore */ }
+          throw new Error("transfer cancelled by user");
+        }
+        if (waitResult === "closed" || ch.readyState !== "open") {
           // Free the stream reader before throwing so it doesn't leak.
           try { reader.cancel(); } catch { /* ignore */ }
           throw new Error("data channel closed mid-transfer");
         }
-        // Honour mid-transfer cancellation. We throw the same error path
-        // as a channel close so the retry loop observes cancelledIds.
+        // Double-check cancellation post-wait — there's a brief window
+        // between the wake-callback unregister and the next loop entry
+        // where cancel() could land. Belt-and-suspenders.
         if (meta.id && this.cancelledIds.has(meta.id)) {
           try { reader.cancel(); } catch { /* ignore */ }
           throw new Error("transfer cancelled by user");
@@ -434,8 +494,18 @@ export class FileTransfer {
     });
 
     // Wait until the outgoing buffer is fully drained so we know the
-    // receiver has acked everything before we declare success.
-    await this.drainBuffer(ch);
+    // receiver has acked everything before we declare success. This is
+    // the final cancel checkpoint — without it, a user pressing Cancel
+    // after the last chunk was queued would have to wait for the WebRTC
+    // buffer to organically flush (could be tens of seconds for a slow
+    // receiver), only to see "Sent" pop up anyway.
+    const drainResult = await this.drainBuffer(ch, meta.id);
+    if (drainResult === "cancelled") {
+      throw new Error("transfer cancelled by user");
+    }
+    if (drainResult === "closed") {
+      throw new Error("data channel closed mid-transfer");
+    }
     this.emitter.emit("sendComplete", meta);
   }
 
@@ -462,23 +532,89 @@ export class FileTransfer {
     }
   }
 
-  private waitForBuffer(ch: RTCDataChannel): Promise<void> {
-    if (ch.bufferedAmount <= ch.bufferedAmountLowThreshold) return Promise.resolve();
+  /**
+   * Wait for the data channel to drain below its `bufferedamountlow`
+   * threshold. Returns "ok" when buffered amount drops, "cancelled" if
+   * cancel(id) is called mid-wait, or "closed" if the channel closes
+   * mid-wait. Always returns within ~100ms of any of those events;
+   * before this fix, a slow receiver could hold the loop here for
+   * many seconds with no way to abort.
+   */
+  private waitForBuffer(
+    ch: RTCDataChannel,
+    cancelId?: string,
+  ): Promise<"ok" | "cancelled" | "closed"> {
+    if (ch.bufferedAmount <= ch.bufferedAmountLowThreshold) {
+      return Promise.resolve("ok");
+    }
     return new Promise((resolve) => {
-      const handler = () => {
-        ch.removeEventListener("bufferedamountlow", handler);
-        resolve();
+      let done = false;
+      const finish = (reason: "ok" | "cancelled" | "closed") => {
+        if (done) return;
+        done = true;
+        ch.removeEventListener("bufferedamountlow", onLow);
+        ch.removeEventListener("close", onClose);
+        if (cancelId) this.pendingCancelWakes.delete(cancelId);
+        resolve(reason);
       };
-      ch.addEventListener("bufferedamountlow", handler);
+      const onLow = () => finish("ok");
+      const onClose = () => finish("closed");
+      ch.addEventListener("bufferedamountlow", onLow);
+      ch.addEventListener("close", onClose);
+      if (cancelId) {
+        this.pendingCancelWakes.set(cancelId, () => finish("cancelled"));
+        // Also poll cancelledIds in case cancel() was called between the
+        // check inside the loop and the wake-callback registration. Cheap
+        // safety net — almost always wins on the listener path.
+        if (this.cancelledIds.has(cancelId)) finish("cancelled");
+      }
     });
   }
 
-  private drainBuffer(ch: RTCDataChannel): Promise<void> {
-    if (ch.bufferedAmount === 0) return Promise.resolve();
+  /**
+   * Wait for the data channel's outgoing buffer to fully drain. Same
+   * cancel-aware contract as waitForBuffer: returns within ~100ms of
+   * cancel, channel close, or natural drain. Previously this used a
+   * 50ms polling tick with no exit on cancel or close — sender could
+   * sit here indefinitely after the user hit Cancel on the very last
+   * chunk.
+   */
+  private drainBuffer(
+    ch: RTCDataChannel,
+    cancelId?: string,
+  ): Promise<"ok" | "cancelled" | "closed"> {
+    if (ch.bufferedAmount === 0) return Promise.resolve("ok");
     return new Promise((resolve) => {
+      let done = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const finish = (reason: "ok" | "cancelled" | "closed") => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        ch.removeEventListener("close", onClose);
+        if (cancelId) this.pendingCancelWakes.delete(cancelId);
+        resolve(reason);
+      };
+      const onClose = () => finish("closed");
+      ch.addEventListener("close", onClose);
+      if (cancelId) {
+        this.pendingCancelWakes.set(cancelId, () => finish("cancelled"));
+        if (this.cancelledIds.has(cancelId)) {
+          finish("cancelled");
+          return;
+        }
+      }
       const tick = () => {
-        if (ch.bufferedAmount === 0) resolve();
-        else setTimeout(tick, 50);
+        if (done) return;
+        if (ch.bufferedAmount === 0) {
+          finish("ok");
+          return;
+        }
+        if (ch.readyState !== "open") {
+          finish("closed");
+          return;
+        }
+        timer = setTimeout(tick, 50);
       };
       tick();
     });

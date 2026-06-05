@@ -1440,6 +1440,11 @@ import { site } from "../site.config";
     let activeSendRow: Row | null = null;
     const receivingRows: Row[] = [];
     let activeRecvRow: Row | null = null;
+    // Cancel watchdog — armed when user hits Cancel, cleared by the next
+    // sendCancelled/error/sendComplete event. Single-row scope: only one
+    // file sends at a time today.
+    let cancelWatchdog: ReturnType<typeof setTimeout> | null = null;
+    let cancelWatchdogId: string | null = null;
 
     const makeRow = (name: string, kind: "send" | "recv"): Row => {
       const el = document.createElement("li");
@@ -1975,6 +1980,25 @@ import { site } from "../site.config";
             transfer.cancel(m.id!);
             activeSendRow!.cancel.disabled = true;
             activeSendRow!.cancel.textContent = "Cancelling…";
+            // Watchdog: if neither sendCancelled, error, nor sendComplete
+            // fires within 5s, restore the button so the user isn't
+            // permanently stuck staring at "Cancelling…". The retry-loop
+            // post-cancel always emits one of those three events within
+            // ~100ms now, so this only fires on truly degenerate cases
+            // (e.g. the WebRTC stack hung mid-state-transition). Cleared
+            // by any of those handlers below.
+            if (cancelWatchdog) clearTimeout(cancelWatchdog);
+            cancelWatchdogId = m.id!;
+            cancelWatchdog = setTimeout(() => {
+              if (!activeSendRow || activeSendRow.id !== cancelWatchdogId) return;
+              activeSendRow.cancel.disabled = false;
+              activeSendRow.cancel.textContent = "Cancel";
+              addWarning(
+                "Cancel didn't get an acknowledgement within 5s — the transfer may still be tearing down. Try Reload app if it persists.",
+              );
+              cancelWatchdog = null;
+              cancelWatchdogId = null;
+            }, 5000);
           };
         }
       });
@@ -1991,10 +2015,26 @@ import { site } from "../site.config";
         row.status.textContent = `Reconnecting ${attempt}/${maxAttempts} · up to ${sec}s`;
         row.status.classList.remove("hidden");
       });
+      transfer.emitter.on("sendCancelling", ({ id }) => {
+        // Defensive — the click handler already sets these, but if cancel()
+        // is invoked programmatically (e.g. future "Cancel All" button)
+        // we want the same visual lock-down without duplicating logic.
+        const row = sendRowsById.get(id);
+        if (row && row.cancel.dataset.field === "cancel") {
+          row.cancel.disabled = true;
+          row.cancel.textContent = "Cancelling…";
+        }
+      });
       transfer.emitter.on("sendCancelled", ({ id }) => {
         // Matched release for sendStart acquire.
         void releaseWakeLock();
         untrackBackgroundTransfer();
+        // Clear watchdog — cancel succeeded, no need to nag the user.
+        if (cancelWatchdog && cancelWatchdogId === id) {
+          clearTimeout(cancelWatchdog);
+          cancelWatchdog = null;
+          cancelWatchdogId = null;
+        }
         const row = sendRowsById.get(id);
         if (row) {
           row.status.classList.add("hidden");
@@ -2008,6 +2048,12 @@ import { site } from "../site.config";
         // Matched release for sendStart acquire.
         void releaseWakeLock();
         untrackBackgroundTransfer();
+        // Clear watchdog — natural completion races a slow cancel.
+        if (cancelWatchdog && cancelWatchdogId === m.id) {
+          clearTimeout(cancelWatchdog);
+          cancelWatchdog = null;
+          cancelWatchdogId = null;
+        }
         if (activeSendRow) {
           activeSendRow.status.classList.add("hidden");
           activeSendRow.cancel.classList.add("hidden");
@@ -2126,6 +2172,13 @@ import { site } from "../site.config";
         // wake-lock claim. The refcount can't go below zero by design.
         void releaseWakeLock();
         untrackBackgroundTransfer();
+        // Clear any armed cancel watchdog — error already tore down the
+        // transfer, so the user's cancel button is meaningless now.
+        if (cancelWatchdog) {
+          clearTimeout(cancelWatchdog);
+          cancelWatchdog = null;
+          cancelWatchdogId = null;
+        }
         addWarning(e.message);
       });
 
