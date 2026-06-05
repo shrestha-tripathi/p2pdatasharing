@@ -35,6 +35,15 @@ export interface FileMeta {
   name: string;
   size: number;
   mime: string;
+  /**
+   * Optional folder-relative path of this file, including the leading
+   * top-level folder name (e.g. "MyPhotos/2024/IMG_1234.jpg"). Set when
+   * the user picked a folder; omitted for individual file picks.
+   * Forward-compatible: receivers that support it group files in a tree
+   * and recreate subdirs on "Save all to folder"; older receivers fall
+   * back to flat layout keyed by `name`.
+   */
+  path?: string;
 }
 
 export interface TransferProgress {
@@ -214,13 +223,20 @@ export class FileTransfer {
 
   // ---------- SENDER ----------
 
-  /** Send a single file. Auto-retries on transient channel close. */
-  async send(file: File) {
+  /** Send a single file. Auto-retries on transient channel close.
+   *
+   * @param file       The file to send.
+   * @param path       Optional folder-relative path (e.g. "MyPhotos/2024/img.jpg").
+   *                   Threaded into FileMeta so the receiver can recreate
+   *                   the directory tree on Save All. Omit for plain
+   *                   single-file picks. */
+  async send(file: File, path?: string) {
     const meta: FileMeta = {
       id: makeId(),
       name: file.name,
       size: file.size,
       mime: file.type || "application/octet-stream",
+      ...(path ? { path } : {}),
     };
     // Attempt up to N times; between attempts wait for channel to re-open.
     // Each attempt re-runs the handshake so we always resume from the
@@ -429,6 +445,19 @@ export class FileTransfer {
       await this.send(file);
       // Small breather so receiver's `handleMessage` queue can resolve
       // the previous completion before the next meta arrives.
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  /**
+   * Send multiple files sequentially, each tagged with a relative path.
+   * Used for folder picks / drag-drop folder so the receiver can group
+   * by directory and recreate the tree on Save All. Items with `path`
+   * undefined are sent as plain files (no `meta.path`).
+   */
+  async sendMultipleWithPaths(items: Array<{ file: File; path?: string }>) {
+    for (const { file, path } of items) {
+      await this.send(file, path);
       await new Promise((r) => setTimeout(r, 50));
     }
   }

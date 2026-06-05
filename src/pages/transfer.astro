@@ -897,7 +897,7 @@ import { site } from "../site.config";
     // ---------- "Save all to folder" (receiver) ----------
     // Buffer received files until either user saves individually or
     // taps "Save all to folder" (uses showDirectoryPicker — Chromium-only).
-    type ReceivedItem = { file: File; name: string; saved: boolean };
+    type ReceivedItem = { file: File; name: string; saved: boolean; path?: string };
     const receivedItems: ReceivedItem[] = [];
     const supportsDirectoryPicker = typeof (window as unknown as { showDirectoryPicker?: unknown }).showDirectoryPicker === "function";
 
@@ -1924,8 +1924,9 @@ import { site } from "../site.config";
         lastTitlePct = -1;
         completedRecvCount += 1;
         completedRecvBytes += meta.size;
-        // Buffer for "Save all to folder"
-        receivedItems.push({ file, name: meta.name, saved: false });
+        // Buffer for "Save all to folder" — preserve folder path when the
+        // sender set meta.path so Save All can recreate the directory tree.
+        receivedItems.push({ file, name: meta.name, saved: false, path: meta.path });
         refreshSaveAllBar();
         if (activeRecvRow) {
           const row = activeRecvRow;
@@ -1993,7 +1994,7 @@ import { site } from "../site.config";
     };
 
     // ---------- Pending queue (sender, pre-connection) ----------
-    type PendingItem = { id: string; file: File; thumbUrl?: string };
+    type PendingItem = { id: string; file: File; thumbUrl?: string; path?: string };
     const pendingQueue: PendingItem[] = [];
     const PQ_AUTO_KEY = "p2pds:autoSend";
 
@@ -2194,14 +2195,67 @@ import { site } from "../site.config";
       renderPendingQueue();
     };
 
+    /**
+     * Folder-aware variant of enqueuePending — accepts {file, path} pairs
+     * (from folder picker / drag-drop folder) and tags each PendingItem
+     * with its relative path so flushPendingQueue can use the path-aware
+     * send. Receiver groups + recreates the tree on Save All.
+     */
+    const enqueuePendingFolder = async (
+      files: Array<{ file: File; path: string }>,
+    ) => {
+      const items: PendingItem[] = [];
+      for (const { file, path } of files) {
+        const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const thumbUrl = await generateThumb(file);
+        items.push({ id, file, thumbUrl, path });
+      }
+      pendingQueue.push(...items);
+      renderPendingQueue();
+    };
+
+    /**
+     * Sender entry-point for a folder pick / drop. If channel is already
+     * live and no queue, sends immediately with paths; otherwise queues
+     * and either auto-flushes or surfaces the "Send all" CTA, matching
+     * onPickFiles() semantics.
+     */
+    const onPickFolderFiles = (files: Array<{ file: File; path: string }>) => {
+      if (files.length === 0) return;
+      resetBar.classList.add("hidden");
+      if (isChannelLive() && pendingQueue.length === 0) {
+        transfer!.sendMultipleWithPaths(files).catch((e) => addWarning(e.message));
+        return;
+      }
+      enqueuePendingFolder(files).then(() => {
+        if (isChannelLive() && pqAuto.checked) {
+          flushPendingQueue();
+        } else if (isChannelLive()) {
+          pqReady.classList.remove("hidden");
+        }
+      });
+    };
+
     const flushPendingQueue = () => {
       if (pendingQueue.length === 0 || !transfer) return;
-      const files = pendingQueue.map((it) => it.file);
-      // Build a synthetic FileList via DataTransfer (only reliable cross-browser way)
-      const dt = new DataTransfer();
-      for (const f of files) dt.items.add(f);
+      // If any queued item carries a folder-relative path (from folder
+      // picker / drag-drop folder), use the path-aware send so the
+      // receiver can group + recreate the tree. Otherwise stay on the
+      // plain FileList path for the existing drag/reorder code.
+      const anyHasPath = pendingQueue.some((it) => it.path !== undefined);
       // Revoke thumb URLs now — rows are about to switch to the live sending UI
       revokeThumbs(pendingQueue);
+      if (anyHasPath) {
+        const items = pendingQueue.map((it) => ({ file: it.file, path: it.path }));
+        pendingQueue.length = 0;
+        renderPendingQueue();
+        transfer.sendMultipleWithPaths(items).catch((e) => addWarning(e.message));
+        return;
+      }
+      // Flat-file path (unchanged): build a synthetic FileList via DataTransfer.
+      const files = pendingQueue.map((it) => it.file);
+      const dt = new DataTransfer();
+      for (const f of files) dt.items.add(f);
       pendingQueue.length = 0;
       renderPendingQueue();
       transfer.sendMultiple(dt.files).catch((e) => addWarning(e.message));
@@ -2378,9 +2432,12 @@ import { site } from "../site.config";
         file: f,
         path: (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name,
       }));
-      const rootName = arr[0]?.path.split("/")[0] || "folder";
       folderInput.value = "";
-      await zipFilesAndQueue(arr, `${rootName}.zip`);
+      // Send as individual files (each tagged with path) so receiver can
+      // group + recreate the directory tree on Save All. Replaces the
+      // legacy zip-on-sender path; zipFilesAndQueue() is preserved
+      // internally as a fallback for any future opt-in toggle.
+      onPickFolderFiles(arr);
     });
 
     pickFolderBtn.addEventListener("click", () => folderInput.click());
@@ -2401,8 +2458,9 @@ import { site } from "../site.config";
         }
         const hasFolder = entries.some((en) => en.isDirectory);
         if (hasFolder) {
-          // Mixed or folder-only drop: walk everything, zip per top-level folder,
-          // queue stand-alone files separately.
+          // Mixed or folder-only drop: walk every folder, queue all files
+          // with paths so receiver groups + recreates the tree. Stand-alone
+          // files dropped alongside go through onPickFiles (no path).
           const standalone: File[] = [];
           for (const entry of entries) {
             if (entry.isFile && entry.file) {
@@ -2410,9 +2468,12 @@ import { site } from "../site.config";
               standalone.push(f);
             } else if (entry.isDirectory) {
               const walked = await walkEntry(entry, "");
-              // Re-prefix so the zip root matches the folder name
-              const withRoot = walked.map(({ file, path }) => ({ file, path: `${entry.name}/${path}` }));
-              await zipFilesAndQueue(withRoot, `${entry.name}.zip`);
+              // Re-prefix so the path root matches the folder name
+              const withRoot = walked.map(({ file, path }) => ({
+                file,
+                path: `${entry.name}/${path}`,
+              }));
+              onPickFolderFiles(withRoot);
             }
           }
           if (standalone.length > 0) {
