@@ -2366,6 +2366,65 @@ import { site } from "../site.config";
           "⚠ Resume handshake timed out — restarting transfer from the beginning. This may take longer.",
         );
       });
+
+      // ── Peer voluntarily left (received "bye" frame) ──────────────
+      // Without this, when the peer manually disconnects we wait ~15s
+      // for ICE timeout and surface a vague "Peer disconnected" toast.
+      // With this, we react instantly and show the correct UI for the
+      // peer's actual intent: disconnect (clean leave), role-switch
+      // (they're re-booting the page), or retry (transient — they'll
+      // be back in a few seconds with a fresh offer).
+      s.emitter.on("peerLeft", ({ reason }) => {
+        const peerLabel = peerName || "Peer";
+        if (reason === "retry") {
+          // Transient — peer is rebuilding with iceTransportPolicy: 'relay'.
+          // Don't tear down our side; just hint to the user it's recovering.
+          // The peer will send a fresh offer over signaling within ~2s
+          // and the existing peer-rejoined / setRemoteDescription path
+          // will pick it back up automatically.
+          setStatus("signaling", `${peerLabel} is reconnecting via relay…`);
+          addInfo(`${peerLabel} is rebuilding the connection. This usually takes 1-3 seconds.`);
+          return;
+        }
+        if (reason === "role-switch") {
+          // Peer is rebooting their page (switching role / toggling
+          // paranoid mode). Tear down our session and go back to a
+          // pristine state so we don't show stale UI from the dead session.
+          addWarning(`${peerLabel} switched modes. Waiting for them to reconnect…`);
+          try { session?.destroy(); } catch { /* */ }
+          session = null;
+          role = null;
+          activePair = null;
+          markIdle();
+          showOnly("paired-waiting");
+          setStatus("signaling", `Waiting for ${peerLabel} to come back…`);
+          // If we're in paired flow, bootDevicesAuto will pick them up
+          // when they re-announce. If we're in random-link flow, the
+          // existing 'disconnected'/'failed' handlers above keep the
+          // current room alive so the peer can rejoin on the same link.
+          return;
+        }
+        // Default ("disconnect" or unknown): peer hit the manual
+        // Disconnect button OR closed their tab. Surface a clean,
+        // accurate message and reset our UI atomically.
+        addWarning(`${peerLabel} disconnected.`);
+        try { session?.destroy(); } catch { /* */ }
+        session = null;
+        role = null;
+        activePair = null;
+        markIdle();
+        // Paired flow → wait for them to come back. Random-link flow →
+        // surface retry panel so the user knows they need to act.
+        if (lobbies.length > 0) {
+          showOnly("paired-waiting");
+          setStatus("signaling", `${peerLabel} disconnected. Will auto-reconnect when they return.`);
+          setTimeout(() => { bootDevicesAuto(); }, 800);
+        } else {
+          showOnly("failed");
+          setStatus("disconnected", `${peerLabel} disconnected.`);
+        }
+      });
+
     };
 
     // ---------- Pending queue (sender, pre-connection) ----------
@@ -3786,6 +3845,12 @@ import { site } from "../site.config";
 
     const bootRole = () => {
       everConnectedThisSession = false;
+      // Tell the peer we're rebooting BEFORE we destroy() the channel.
+      // Categorized as "role-switch" since bootRole runs on user-initiated
+      // retry / paranoid-toggle / role change — all visible-to-user
+      // intentional reboots. Peer's UI shows "Waiting for them to come
+      // back" instead of an error.
+      try { session?.sendBye("role-switch"); } catch { /* */ }
       session?.destroy();
       session = null;
       // Always start a fresh role boot in an "available" lobby state,
@@ -4498,6 +4563,10 @@ import { site } from "../site.config";
 
     paranoidToggle.addEventListener("change", () => {
       if (role) {
+        // Tell the peer we're switching modes so they don't wait ~15s
+        // for the data channel to time out. Best-effort — if there's
+        // no live session yet, this is a no-op.
+        try { session?.sendBye("role-switch"); } catch { /* */ }
         showOnly("booting");
         bootRole();
       }
@@ -4695,6 +4764,12 @@ import { site } from "../site.config";
      * helpful for the peer's RTCPC.onconnectionstatechange.
      */
     const cleanupOnUnload = () => {
+      // Best-effort bye frame BEFORE destroy(). On tab close the OS may
+      // drop the frame mid-send (process reaped before SCTP flushes),
+      // but on refresh / navigation it usually makes it out — giving the
+      // peer an instant "they left" event instead of waiting for ICE
+      // timeout to fire ~15s later.
+      try { session?.sendBye("disconnect"); } catch { /* */ }
       try { markIdle(); } catch { /* */ }
       try { session?.destroy(); } catch { /* */ }
     };
@@ -4703,6 +4778,10 @@ import { site } from "../site.config";
 
     discBtn?.addEventListener("click", () => {
       if (!confirm("Disconnect from this peer? You'll need to reconnect manually (or auto-reconnect if paired).")) return;
+      // Tell the peer FIRST (before destroy() closes the channel) so
+      // their UI flips to "Lappy disconnected" instantly instead of
+      // waiting ~15s for ICE timeout to surface a vague error.
+      try { session?.sendBye("disconnect"); } catch { /* */ }
       try { session?.destroy(); } catch {}
       session = null;
       role = null;

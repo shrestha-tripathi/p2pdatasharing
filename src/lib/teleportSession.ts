@@ -32,6 +32,22 @@ export interface SessionEvents {
   /** Worker tells us if we're first ("host") or second ("join") in the room. */
   serverRole: "host" | "join";
   /**
+   * Fired when the OTHER peer voluntarily ended the session by sending a
+   * `bye` control frame on the data channel. Page UI uses this to show
+   * a clear, accurate "they left" message instead of waiting ~15s for
+   * the ICE connection to time out and showing a vague "disconnected".
+   *
+   *   "disconnect"  — peer hit the manual Disconnect button
+   *   "role-switch" — peer is switching role / toggling paranoid mode
+   *   "retry"       — peer is re-running adaptive relay-only retry
+   *                   (transient — don't tear down our side, just
+   *                   show a "Reconnecting…" hint)
+   *
+   * Unknown reason strings should be treated as "disconnect" so we
+   * never silently swallow a peer-initiated end.
+   */
+  peerLeft: { reason: "disconnect" | "role-switch" | "retry" | string };
+  /**
    * Heartbeat (layer 4) RTT in ms — fired on every successful pong. Surface
    * in UI later if useful. RTT > 200ms suggests one side is throttled.
    */
@@ -289,11 +305,12 @@ export class TeleportSession {
       this.emitter.emit("channelOpen", ch);
     };
     ch.onmessage = (e) => {
-      // Intercept heartbeat control frames so they never reach the
-      // application layer (fileTransfer.ts). Anything else passes through.
-      if (typeof e.data === "string" && e.data.length < 96) {
-        const handled = this.tryHandleHeartbeatFrame(e.data);
-        if (handled) return;
+      // Intercept session-level control frames (heartbeat + bye) so they
+      // never reach the application layer (fileTransfer.ts). Anything
+      // else passes through to channelMessage subscribers.
+      if (typeof e.data === "string" && e.data.length < 192) {
+        if (this.tryHandleHeartbeatFrame(e.data)) return;
+        if (this.tryHandleByeFrame(e.data)) return;
       }
       this.emitter.emit("channelMessage", { data: e.data });
     };
@@ -332,6 +349,50 @@ export class TeleportSession {
       /* malformed — let it bubble (probably not a heartbeat after all) */
     }
     return false;
+  }
+
+  /**
+   * Handle inbound bye control frames. Returns true if the frame was
+   * consumed (caller should NOT bubble it up to channelMessage).
+   *
+   * Wire format:
+   *   { "kind": "bye", "reason": "disconnect" | "role-switch" | "retry" }
+   *
+   * Bye fires when the peer voluntarily ends the session — this is the
+   * opposite-side counterpart of our own destroy()/restartAsRelayOnly()
+   * calls. Without bye, the peer's side waits for ICE timeout (~15s)
+   * and shows a vague "Peer disconnected" toast. With bye, the UI can
+   * immediately switch to the correct state with the correct reason.
+   */
+  private tryHandleByeFrame(raw: string): boolean {
+    // Cheap guard — avoid JSON.parse on every meta/chunk frame.
+    if (raw[0] !== "{" || raw.indexOf("\"bye\"") === -1) return false;
+    try {
+      const f = JSON.parse(raw) as { kind?: string; reason?: string };
+      if (f.kind === "bye") {
+        const reason = typeof f.reason === "string" ? f.reason : "disconnect";
+        this.emitter.emit("log", `peer sent bye (reason: ${reason})`);
+        this.emitter.emit("peerLeft", { reason });
+        return true;
+      }
+    } catch {
+      /* malformed — let it bubble (probably not a bye after all) */
+    }
+    return false;
+  }
+
+  /**
+   * Send a bye frame to the peer announcing that we're voluntarily
+   * ending the session. Best-effort — if the channel is already closed
+   * the peer will fall through to the normal ICE-timeout path.
+   *
+   * Synchronous so callers can fire-and-forget before destroy(),
+   * confident the frame at least made it onto the WebRTC send queue.
+   * The data channel's underlying SCTP will best-effort deliver it
+   * before the connection closes.
+   */
+  sendBye(reason: "disconnect" | "role-switch" | "retry"): void {
+    this.sendControlFrame({ kind: "bye", reason });
   }
 
   /** Send a small JSON control frame on the data channel. Best-effort. */
@@ -784,6 +845,11 @@ export class TeleportSession {
 
     this._relayRetryAttempted = true;
     this.emitter.emit("log", "Adaptive retry: rebuilding peer with iceTransportPolicy=relay");
+    // Tell the peer we're about to tear down and rebuild — without this
+    // they see "disconnected" and may surface an error UI even though
+    // it's transient. With "retry" reason they show "Reconnecting…" and
+    // wait for the rebuilt offer to arrive over the signaling WS.
+    this.sendBye("retry");
     // Tell the UI we're still working — same "signaling" pill the
     // initial handshake uses. Beats showing "failed" then "signaling".
     this.emitter.emit("state", "signaling");
