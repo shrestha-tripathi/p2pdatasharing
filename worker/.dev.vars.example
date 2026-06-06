@@ -1,0 +1,10 @@
+# Cloudflare Workers local dev secrets.
+# Copy to `.dev.vars` (gitignored) and fill in real values for local `wrangler dev`.
+#
+# For PRODUCTION secrets: use `wrangler secret put NAME` instead.
+# See worker/scripts/restore-prod-secrets.sh — one-command restore for prod.
+#
+# NOTE: TURN_DOMAIN + ALLOWED_ORIGINS now live in wrangler.toml [vars] section
+# (they're not secrets, just config). Only TURN_SHARED_SECRET is here.
+
+TURN_SHARED_SECRET="paste-coturn-static-auth-secret-here"

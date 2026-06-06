@@ -27,6 +27,14 @@ TURN_DOMAIN="${TURN_DOMAIN:?Set TURN_DOMAIN, e.g. TURN_DOMAIN=turn.filetransfern
 TURN_SHARED_SECRET="${TURN_SHARED_SECRET:?Set TURN_SHARED_SECRET from step 02}"
 ALLOWED_ORIGINS="${ALLOWED_ORIGINS:-https://filetransfernow.com,https://www.filetransfernow.com,http://localhost:4321}"
 
+# ---- Guard against silent empty-string secret resets ----
+# `echo "" | wrangler secret put X` happily sets X="" and breaks /turn at runtime.
+# Sanity-check non-empty values BEFORE we touch wrangler.
+[[ -n "$TURN_SHARED_SECRET" && ${#TURN_SHARED_SECRET} -ge 16 ]] \
+  || { echo "✗ TURN_SHARED_SECRET is empty or <16 chars — refusing to set"; exit 1; }
+[[ -n "$TURN_DOMAIN" && "$TURN_DOMAIN" == *.* ]] \
+  || { echo "✗ TURN_DOMAIN looks bogus: '$TURN_DOMAIN'"; exit 1; }
+
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 WORKER_DIR="${REPO_ROOT}/worker"
 
@@ -50,18 +58,16 @@ fi
 # -------- Set secrets via wrangler --------
 step "Setting Cloudflare Worker secrets"
 
-# TURN_SHARED_SECRET — only one that's truly secret
-echo "$TURN_SHARED_SECRET" | npx wrangler secret put TURN_SHARED_SECRET
+# TURN_SHARED_SECRET — the only TRUE secret. Use printf -n to avoid trailing newline
+# (wrangler secret put includes \n in the stored value if you use `echo`).
+printf '%s' "$TURN_SHARED_SECRET" | npx wrangler secret put TURN_SHARED_SECRET
 ok "TURN_SHARED_SECRET set"
 
-# TURN_DOMAIN — not secret, but cleaner to manage as a var
-echo "$TURN_DOMAIN" | npx wrangler secret put TURN_DOMAIN
-ok "TURN_DOMAIN set"
-
-# ALLOWED_ORIGINS — comma-separated, also not secret but version-controlled
-# is annoying because every env (dev/staging/prod) has different values
-echo "$ALLOWED_ORIGINS" | npx wrangler secret put ALLOWED_ORIGINS
-ok "ALLOWED_ORIGINS set"
+# TURN_DOMAIN and ALLOWED_ORIGINS now live in worker/wrangler.toml [vars] —
+# they're public config, not secrets. `wrangler deploy` re-applies them every
+# time, so they CANNOT silently reset. If you want to change them, edit
+# wrangler.toml directly and commit the change.
+warn "TURN_DOMAIN + ALLOWED_ORIGINS are now in wrangler.toml [vars] — not setting as secrets"
 
 # -------- Deploy --------
 step "Deploying worker"

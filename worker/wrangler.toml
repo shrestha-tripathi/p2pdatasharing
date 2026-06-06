@@ -34,7 +34,20 @@ new_sqlite_classes = ["LobbyDO"]
 tag = "v3"
 new_sqlite_classes = ["CodeDO"]
 
-# Allow any browser origin to upgrade WS — adjust for production if you
-# want to lock it down to a specific domain.
+# Public, non-secret config. These are versioned in source and re-applied
+# on every `wrangler deploy` — they CANNOT silently reset like secrets can.
+#
+# If you need to change values per-env (dev/staging/prod), use:
+#   [env.staging.vars] / [env.production.vars]
+#
+# DO NOT put secrets here. Use `wrangler secret put NAME` for those.
+# (Currently only TURN_SHARED_SECRET is a true secret — see worker/.dev.vars.example.)
 [vars]
+# WebSocket origin allowlist for /signal (handled in RoomDO). "*" = any.
 ALLOWED_ORIGIN = "*"
+# Comma-separated Origin allowlist for /turn — blocks drive-by scraping of
+# our TURN credentials. Spoofable by curl, but stops browser-tab attacks.
+ALLOWED_ORIGINS = "https://filetransfernow.com,https://www.filetransfernow.com,http://localhost:4321"
+# Self-hosted coturn domain. TURN_SHARED_SECRET (the HMAC key) is set as a
+# real secret separately; see worker/scripts/restore-prod-secrets.sh.
+TURN_DOMAIN = "turn.filetransfernow.com"
