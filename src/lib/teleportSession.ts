@@ -68,8 +68,9 @@ const DEFAULT_ICE: RTCIceServer[] = [
 
 /**
  * Fetch short-lived TURN credentials from our Worker (which proxies to
- * Cloudflare's free TURN service). Returns null on failure so we still
- * try STUN-only — useful when the Worker's TURN binding isn't set up.
+ * Cloudflare's free TURN service or self-hosted coturn via HMAC).
+ * Returns null on failure so we still try STUN-only — useful when the
+ * Worker's TURN binding isn't set up.
  */
 async function fetchTurnCreds(signalingUrl: string): Promise<RTCIceServer[] | null> {
   try {
@@ -83,6 +84,55 @@ async function fetchTurnCreds(signalingUrl: string): Promise<RTCIceServer[] | nu
   } catch {
     return null;
   }
+}
+
+/**
+ * Module-level single-flight cache of the TURN-creds fetch.
+ *
+ * Why module-level: we want the HTTP request to fire as soon as the
+ * teleport-session module is imported — typically during page load,
+ * long before the user clicks "Connect". By the time they actually
+ * connect, the promise is usually already resolved.
+ *
+ * Why single-flight: multiple sessions on the same page (rare, but
+ * possible for paired-device flows) share one fetch instead of
+ * thrashing the Worker.
+ *
+ * Why null-on-failure (not throw): so callers can fall back to
+ * STUN-only without crashing. The diag UI will show "no relay
+ * candidate" if it actually matters.
+ *
+ * Refresh on next session: we don't pre-emptively refresh — the
+ * HMAC creds we mint are valid for 1 hour (see worker/src/index.ts),
+ * which is longer than any realistic single-session lifetime. Page
+ * reload re-runs the module, which re-fetches. Good enough.
+ */
+let _turnCredsPromise: Promise<RTCIceServer[] | null> | null = null;
+
+function preloadTurnCreds(signalingUrl: string): Promise<RTCIceServer[] | null> {
+  if (_turnCredsPromise) return _turnCredsPromise;
+  _turnCredsPromise = fetchTurnCreds(signalingUrl);
+  return _turnCredsPromise;
+}
+
+/**
+ * Wait up to `maxWaitMs` for the cached TURN-creds promise to resolve.
+ * If it hasn't resolved by then, return null so we proceed STUN-only
+ * rather than block the entire connect flow on a flaky /turn endpoint.
+ *
+ * 2000ms covers the realistic worst case (cold worker + slow mobile
+ * network ≈ 800ms). If we still haven't heard back by 2s, TURN is
+ * probably broken and STUN-only is the right answer anyway.
+ */
+async function awaitTurnCredsWithDeadline(
+  signalingUrl: string,
+  maxWaitMs = 2000,
+): Promise<RTCIceServer[] | null> {
+  const promise = preloadTurnCreds(signalingUrl);
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), maxWaitMs)),
+  ]);
 }
 
 const CONNECT_TIMEOUT_MS = 15_000;
@@ -170,23 +220,14 @@ export class TeleportSession {
     });
     this.wireUpPeer();
 
-    // Asynchronously try to fetch Cloudflare TURN creds from our Worker.
-    // If successful, add them to the peer connection BEFORE ICE gathering
-    // matters (setLocalDescription kicks off gathering, so this race only
-    // hurts if the user hits send within ~500ms of page load).
+    // Eagerly warm the module-level TURN-creds cache so by the time
+    // hostAuto/joinAuto is actually called (after the user fills the
+    // room code, clicks Connect, etc.), the promise is usually already
+    // resolved. The actual peer-config update happens in
+    // maybeApplyTurnCreds(), awaited *before* any setLocalDescription —
+    // eliminates the race where ICE gathering started without TURN.
     if (!opts.iceServers) {
-      fetchTurnCreds(opts.signalingUrl).then((extra) => {
-        if (!extra) return;
-        const current = this.peer.getConfiguration();
-        const merged = [...(current.iceServers ?? []), ...extra];
-        try {
-          this.peer.setConfiguration({ ...current, iceServers: merged });
-          this.emitter.emit("log", `TURN credentials loaded (${extra.length} servers)`);
-        } catch {
-          /* setConfiguration after gathering started is a no-op on some
-             browsers — fine, STUN will still work for non-NAT cases. */
-        }
-      });
+      preloadTurnCreds(opts.signalingUrl);
     }
   }
 
@@ -351,11 +392,47 @@ export class TeleportSession {
     }
   }
 
+  /**
+   * Pull the cached TURN creds (waiting up to 2s if the preload is
+   * still pending) and apply them to the peer connection. Idempotent —
+   * `_turnApplied` ensures we don't double-apply if called multiple
+   * times during a session (e.g. host then receiver promotion).
+   *
+   * MUST be awaited before any setLocalDescription, otherwise ICE
+   * gathering starts without TURN in the config and the relay
+   * candidate never appears in the offer.
+   */
+  private _turnApplied = false;
+  private async maybeApplyTurnCreds(): Promise<void> {
+    if (this._turnApplied) return;
+    if (this.opts.iceServers) return; // caller overrode — don't touch
+    const extra = await awaitTurnCredsWithDeadline(this.opts.signalingUrl);
+    if (!extra) {
+      this.emitter.emit("log", "TURN creds unavailable — proceeding STUN-only");
+      // Mark applied so we don't keep retrying the slow path on every offer.
+      this._turnApplied = true;
+      return;
+    }
+    const current = this.peer.getConfiguration();
+    const merged = [...(current.iceServers ?? []), ...extra];
+    try {
+      this.peer.setConfiguration({ ...current, iceServers: merged });
+      this.emitter.emit("log", `TURN credentials loaded (${extra.length} servers)`);
+      this._turnApplied = true;
+    } catch {
+      // setConfiguration after gathering started is a no-op on some
+      // browsers. STUN will still work for non-NAT cases.
+    }
+  }
+
   /** Sender path: create room + offer, connect via signaling. */
   async hostAuto(roomId: string) {
     this.role = "sender";
     this.roomId = roomId;
     this.emitter.emit("state", "signaling");
+    // Apply TURN creds BEFORE setLocalDescription — otherwise ICE
+    // gathering kicks off without TURN and the relay candidate is missing.
+    await this.maybeApplyTurnCreds();
     await this.openSignaling(roomId);
 
     const ch = this.peer.createDataChannel("file-payload");
@@ -374,6 +451,9 @@ export class TeleportSession {
     this.role = "receiver";
     this.roomId = roomId;
     this.emitter.emit("state", "signaling");
+    // Apply TURN creds BEFORE we receive any offer — the offer handler
+    // calls setLocalDescription(answer) which starts ICE gathering.
+    await this.maybeApplyTurnCreds();
     await this.openSignaling(roomId);
     // Receiver is opening a fresh link — peer should answer within seconds.
     // Safe to start the 15s timer immediately here.
@@ -408,6 +488,11 @@ export class TeleportSession {
     this.wireUpPeer();
     this.role = "sender";
 
+    // Fresh peer → need to re-apply TURN creds (the cache is still warm,
+    // so this is ~0ms in practice).
+    this._turnApplied = false;
+    await this.maybeApplyTurnCreds();
+
     const ch = this.peer.createDataChannel("file-payload");
     this.attachChannel(ch);
     const offer = await this.peer.createOffer();
@@ -420,6 +505,10 @@ export class TeleportSession {
   async connectAuto(roomId: string): Promise<"sender" | "receiver"> {
     this.roomId = roomId;
     this.emitter.emit("state", "signaling");
+
+    // Apply TURN creds BEFORE any setLocalDescription happens in either
+    // branch below. The cache is usually warm by now (preloaded in ctor).
+    await this.maybeApplyTurnCreds();
 
     // Open signaling FIRST and capture role assignment before deciding what to do.
     const rolePromise = new Promise<"sender" | "receiver">((resolve, reject) => {
