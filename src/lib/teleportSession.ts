@@ -391,6 +391,29 @@ export class TeleportSession {
         this.emitter.emit("state", "disconnected");
         this.stopSelectedPairPolling();
       } else if (s === "failed") {
+        // ICE may declare "failed" on its own before our 15s connectTimer
+        // fires — usually 8-12s in when all candidate-pair checks fail.
+        // BEFORE surfacing the failure to the UI (which buzzes, vibrates,
+        // and shows the retry panel), give the adaptive relay-only retry
+        // a chance: if we gathered a relay candidate, rebuild the peer
+        // with iceTransportPolicy="relay" silently. The user sees a brief
+        // "Reconnecting via relay…" status instead of "failed → success"
+        // strobe within ~500ms.
+        //
+        // Skip if: already retried, or we never gathered a relay
+        // candidate (TURN unreachable from our side — no point retrying).
+        if (!this._relayRetryAttempted && this.candidateTypes.relay > 0 && !this.isParanoid) {
+          this.emitter.emit("log", "ICE failed — kicking off adaptive relay-only retry (silent)");
+          this.retryAsRelayOnly().catch((err) =>
+            this.emitter.emit("log", `Relay-only retry failed to launch: ${String(err)}`),
+          );
+          // IMPORTANT: don't emit "failed" or stop polling — retryAsRelayOnly
+          // emits "signaling" itself and rebuilds the peer. If we drop into
+          // the regular failed-path here, the UI buzzes for ~500ms before
+          // the retry's "signaling" emit overwrites it (the bug you saw).
+          fireDiag();
+          return;
+        }
         this.emitter.emit("state", "failed");
         this.stopSelectedPairPolling();
       }
@@ -980,6 +1003,9 @@ export class TeleportSession {
     this.sendBye("retry");
     // Tell the UI we're still working — same "signaling" pill the
     // initial handshake uses. Beats showing "failed" then "signaling".
+    // Emit a specific log line the UI surfaces as a friendly toast so
+    // the user knows WHY we're reconnecting (their network needs relay).
+    this.emitter.emit("log", "switching-to-relay");
     this.emitter.emit("state", "signaling");
 
     // Tear down old PC + DC.

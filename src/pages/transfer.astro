@@ -1987,6 +1987,19 @@ import { site } from "../site.config";
         );
       });
 
+      // Friendly toast when the adaptive relay-only retry kicks in.
+      // teleportSession emits this specific log line right before
+      // tearing down + rebuilding the peer with iceTransportPolicy=relay.
+      // Without this, the user just sees the status pill flip back to
+      // "signaling" with no explanation of WHY (their network needed
+      // a relay path because direct/srflx pairs failed).
+      s.emitter.on("log", (msg) => {
+        if (msg === "switching-to-relay") {
+          setStatus("connecting", "Your network needs a relay — switching to TURN…");
+          addInfo("Switching to relay path (your network blocked direct P2P).");
+        }
+      });
+
       s.emitter.on("diag", (d) => {
         renderDiag(d);
         updateLiveStatus(d);
