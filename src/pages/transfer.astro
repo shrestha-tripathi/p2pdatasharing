@@ -885,6 +885,78 @@ import { site } from "../site.config";
     const chatInput = $<HTMLTextAreaElement>("chat-input");
     const chatSend = $<HTMLButtonElement>("chat-send");
 
+    // ---------- UI phase machine ----------
+    /**
+     * The transfer page has ~10 major panels (role picker, sender link,
+     * receiver wait, retry, paranoid, transfer, lobby sender, lobby
+     * receiver, lobby invite confirm, paired banner, status card,
+     * chat, drop zone) that toggle independently across ~40 sites.
+     *
+     * Pre-this: each transition mutated panels individually. Easy to
+     * forget one → multiple stale panels show at once (rolePicker + senderLink
+     * + receiverWait + retryPanel all visible simultaneously after a retry).
+     *
+     * Now: one helper, single source of truth. Pass a "phase" → it sets
+     * the visibility of EVERY major panel atomically. Call sites that
+     * still ad-hoc-toggle panels keep working; this is purely additive.
+     *
+     * Mapping is intentionally explicit (no inheritance / merging) so
+     * reading any one branch tells you exactly what's on screen.
+     */
+    type UIPhase =
+      | "booting"          // initial load / bootRole reset — clear slate
+      | "role-picker"      // user needs to pick send/receive
+      | "paired-waiting"   // auto-connecting to paired devices
+      | "sender-link"      // sender showing QR/link, waiting for receiver
+      | "receiver-wait"    // receiver waiting for sender's handshake
+      | "connected"        // session live — show transfer + chat
+      | "failed";          // hard fail — show retry panel only
+
+    const showOnly = (phase: UIPhase) => {
+      // Get the panels that aren't aliased as consts elsewhere.
+      const rolePairedBanner = document.getElementById("role-paired-banner");
+      // Visibility set for each phase. Booleans → classList.add/remove("hidden").
+      // If a panel isn't listed in `visible`, it's HIDDEN.
+      const allPanels: Array<{ el: Element | null; key: string }> = [
+        { el: rolePicker, key: "rolePicker" },
+        { el: rolePairedBanner, key: "rolePairedBanner" },
+        { el: lobbySenderPanel, key: "lobbySenderPanel" },
+        { el: lobbyReceiverPanel, key: "lobbyReceiverPanel" },
+        { el: lobbyInviteConfirm, key: "lobbyInviteConfirm" },
+        { el: senderLink, key: "senderLink" },
+        { el: receiverWait, key: "receiverWait" },
+        { el: retryPanel, key: "retryPanel" },
+        { el: paranoidPanel, key: "paranoidPanel" },
+        { el: transferPanel, key: "transferPanel" },
+        { el: dropZone, key: "dropZone" },
+        { el: chatPanel, key: "chatPanel" },
+      ];
+
+      const visibleByPhase: Record<UIPhase, Set<string>> = {
+        // Pristine — clear everything. Subsequent boot* call decides what to show.
+        "booting": new Set(),
+        // User must choose send/receive. Nothing else allowed.
+        "role-picker": new Set(["rolePicker"]),
+        // Auto-connect in progress — lobby cards drive the UX.
+        "paired-waiting": new Set(["lobbySenderPanel", "lobbyReceiverPanel"]),
+        // Sender ready, waiting for receiver. Show link + drop-zone so files queue.
+        "sender-link": new Set(["senderLink", "transferPanel", "dropZone"]),
+        // Receiver ready, waiting for sender's offer.
+        "receiver-wait": new Set(["receiverWait"]),
+        // Session live — show transfer + chat. Hide all setup UI.
+        "connected": new Set(["transferPanel", "chatPanel"]),
+        // Hard fail — retry panel only, lets user reboot cleanly.
+        "failed": new Set(["retryPanel"]),
+      };
+
+      const visible = visibleByPhase[phase];
+      for (const p of allPanels) {
+        if (!p.el) continue;
+        if (visible.has(p.key)) p.el.classList.remove("hidden");
+        else p.el.classList.add("hidden");
+      }
+    };
+
     // ---------- State ----------
     type Role = "sender" | "receiver";
     let role: Role | null = null;
@@ -1934,10 +2006,10 @@ import { site } from "../site.config";
             return;
           }
           // Already auto-recovered once, or we're the receiver — surface the
-          // manual retry UI like before.
-          senderLink.classList.add("hidden");
-          paranoidPanel.classList.add("hidden");
-          retryPanel.classList.remove("hidden");
+          // manual retry UI like before. showOnly("failed") atomically hides
+          // every other panel (sender-link, lobby cards, receiver-wait,
+          // role-picker) so the retry panel is the only thing the user sees.
+          showOnly("failed");
           chatSend.disabled = true;
           chatInput.disabled = true;
           chatInput.placeholder = "Peer disconnected";
@@ -3719,6 +3791,11 @@ import { site } from "../site.config";
       // Always start a fresh role boot in an "available" lobby state,
       // even if the previous session ended dirty.
       markIdle();
+      // Atomically reset every major panel — prevents stale UI from
+      // the previous session (sender-link card, retry panel, role-picker,
+      // lobby cards) lingering into the fresh role. The boot* calls
+      // below will then show the panels appropriate to the new role.
+      showOnly("booting");
       transfer = null;
       chat = null;
       lastSessionState = "idle";
@@ -4406,19 +4483,22 @@ import { site } from "../site.config";
     // Retry handlers (sender side, after a connection failure)
     retryBtn.onclick = () => {
       // Same role, same mode — just rebuild from scratch with a fresh room.
-      retryPanel.classList.add("hidden");
+      // showOnly("booting") clears EVERY panel atomically — fixes the bug
+      // where role-picker + lobby + sender-link + retry would all stay
+      // visible at once after clicking Try again.
+      showOnly("booting");
       autoReconnectAttempted = false;
       bootRole();
     };
     retryParanoidBtn.onclick = () => {
-      retryPanel.classList.add("hidden");
+      showOnly("booting");
       paranoidToggle.checked = true;
       bootRole();
     };
 
     paranoidToggle.addEventListener("change", () => {
       if (role) {
-        rolePicker.classList.add("hidden");
+        showOnly("booting");
         bootRole();
       }
     });
