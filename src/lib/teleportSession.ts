@@ -740,6 +740,91 @@ export class TeleportSession {
   }
 
   /**
+   * Set to true once we've tried the adaptive relay-only retry path.
+   * Single shot per session — if even relay-forced fails, the network
+   * is truly hostile and we surface buildFailureMessage() to the user.
+   */
+  private _relayRetryAttempted = false;
+
+  /**
+   * Adaptive retry: rebuild the peer with iceTransportPolicy: 'relay'
+   * and re-run the handshake. Called when:
+   *   - the 15s connect timer fired (no successful pair)
+   *   - we have at least one local relay candidate (TURN works for us)
+   *   - we haven't already retried
+   *
+   * Why this helps: on networks where direct (host/srflx) candidate
+   * pairs will never succeed (one peer on symmetric NAT, both behind
+   * UDP-blocking firewalls), the browser still spends 5-10s testing
+   * those doomed pairs before falling through to relay. Forcing
+   * relay-only on retry skips that wasted time and connects in 1-2s.
+   *
+   * Why not "always relay-only"? Because direct (when it works) is
+   * faster + free for us. Default-direct + retry-relay-only is the
+   * best of both: free when easy, fast-recovery when hard.
+   *
+   * Safe to call from either sender or receiver role — we just rebuild
+   * the peer with the stricter policy, reset all gathered state, and
+   * re-run the role-appropriate handshake step.
+   */
+  private async retryAsRelayOnly(): Promise<void> {
+    if (this._relayRetryAttempted) return;
+    if (this.destroyed) return;
+    if (this.isParanoid) return; // paranoid mode is human-paced, no auto-retry
+    if (!this.roomId) return;
+    // No point retrying if we never even got a relay candidate — TURN
+    // itself is broken or unreachable from us. Let the failure surface.
+    if (this.candidateTypes.relay === 0) {
+      this.emitter.emit(
+        "log",
+        "Skipping relay-only retry — no relay candidates gathered (TURN unreachable from us)",
+      );
+      return;
+    }
+
+    this._relayRetryAttempted = true;
+    this.emitter.emit("log", "Adaptive retry: rebuilding peer with iceTransportPolicy=relay");
+    // Tell the UI we're still working — same "signaling" pill the
+    // initial handshake uses. Beats showing "failed" then "signaling".
+    this.emitter.emit("state", "signaling");
+
+    // Tear down old PC + DC.
+    try { this.dataChannel?.close(); } catch { /* noop */ }
+    try { this.peer.close(); } catch { /* noop */ }
+    this.dataChannel = null;
+    this.cachedCandidates = [];
+    this.candidatesReceived = 0;
+    this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+
+    // Rebuild with relay-forced policy. Re-use whatever iceServers
+    // the current peer already had (which includes the freshly-applied
+    // TURN creds) — no need to re-fetch from /turn.
+    const currentCfg = this.peer.getConfiguration();
+    this.peer = new RTCPeerConnection({
+      iceServers: currentCfg.iceServers ?? this.opts.iceServers ?? DEFAULT_ICE,
+      iceTransportPolicy: "relay",
+    });
+    this.wireUpPeer();
+    // Don't reset _turnApplied — creds are still live on the new peer
+    // via the iceServers we just copied over. Saves a second fetch.
+
+    if (this.role === "sender") {
+      const ch = this.peer.createDataChannel("file-payload");
+      this.attachChannel(ch);
+      const offer = await this.peer.createOffer();
+      await this.peer.setLocalDescription(offer);
+      this.cachedOffer = offer;
+      this.sendSignal({ type: "offer", payload: offer });
+    }
+    // Receiver: just wait — the sender's relay-only offer will arrive
+    // via signaling and the existing onmessage handler will answer.
+
+    // Fresh connect timer — if relay-only ALSO times out, we emit the
+    // real failure message and stop retrying.
+    this.startConnectTimer();
+  }
+
+  /**
    * Build a network-aware failure message from the current diag state.
    *
    * Goal: stop blaming the user. Old copy lumped every failure into
@@ -794,10 +879,22 @@ export class TeleportSession {
   private startConnectTimer() {
     this.clearConnectTimer();
     this.connectTimer = setTimeout(() => {
-      if (this.peer.connectionState !== "connected") {
-        this.emitter.emit("state", "failed");
-        this.emitter.emit("error", new Error(this.buildFailureMessage()));
+      if (this.peer.connectionState === "connected") return;
+
+      // First time we hit the timeout: try the adaptive relay-only
+      // retry path (rebuilds peer with iceTransportPolicy: 'relay').
+      // retryAsRelayOnly() is a no-op if we've already retried OR if
+      // no relay candidate was gathered — in either case we fall
+      // through to the user-facing failure.
+      if (!this._relayRetryAttempted && this.candidateTypes.relay > 0) {
+        this.retryAsRelayOnly().catch((err) =>
+          this.emitter.emit("log", `Relay-only retry failed to launch: ${String(err)}`),
+        );
+        return;
       }
+
+      this.emitter.emit("state", "failed");
+      this.emitter.emit("error", new Error(this.buildFailureMessage()));
     }, CONNECT_TIMEOUT_MS);
   }
 
