@@ -163,9 +163,14 @@ async function handleTurn(env: Env, request: Request): Promise<Response> {
     return new Response(
       JSON.stringify({
         iceServers: [
-          // STUN for NAT discovery — needed even when TURN is used.
-          { urls: `stun:${env.TURN_DOMAIN}:3478` },
-          // TURNS only — TLS-encrypted relay on the standard secure port.
+          // STUN: Cloudflare's globally-distributed anycast STUN server.
+          // STUN is just NAT-discovery (cheap, no auth, no relay traffic),
+          // so we use Cloudflare's free tier instead of burning bandwidth
+          // on the Azure coturn box. The Azure box only handles actual relay.
+          { urls: "stun:stun.cloudflare.com:3478" },
+          // TURNS: self-hosted Azure coturn, TLS on standard secure port.
+          // All relayed traffic encrypted in transit, looks like normal TLS
+          // to middleboxes (gets through corporate firewalls).
           {
             urls: `turns:${env.TURN_DOMAIN}:5349?transport=tcp`,
             username,
