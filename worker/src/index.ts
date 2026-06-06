@@ -128,15 +128,23 @@ async function handleTurn(env: Env, request: Request): Promise<Response> {
     }
   }
 
-  // ---- Mode A: self-hosted coturn via HMAC REST auth ----
+  // ---- Mode A: self-hosted coturn via HMAC REST auth (TURNS-only) ----
   // Preferred for production. We hold a shared secret with the coturn server;
   // we generate a `<expiry>:<user>` username + HMAC-SHA1 credential. Coturn
   // verifies the HMAC server-side without needing any callback. Creds expire
-  // after `ttlSeconds` so stolen ones can't be stockpiled.
+  // after `ttlSeconds` so stolen ones can't be stockpiled for bandwidth theft.
+  //
+  // We emit TURNS-only (TLS-encrypted TURN) since the deployed coturn box has
+  // a real cert. This means all relayed traffic is encrypted in transit and
+  // looks like normal TLS to middleboxes — gets through most corporate firewalls.
+  // Tradeoff: slightly higher CPU than plain TURN/UDP, and we lose direct UDP
+  // candidates. For our payloads (file transfer over WebRTC data channels)
+  // this is the right call — DTLS-SRTP already encrypts inner traffic, but
+  // TURNS prevents the relay HOP from leaking metadata to network observers.
   if (env.TURN_SHARED_SECRET && env.TURN_DOMAIN) {
-    const ttlSeconds = 600; // 10 min — fits inside coturn's default refresh window
+    const ttlSeconds = 3600; // 1 hour — long enough for big transfers + reconnects
     const expiry = Math.floor(Date.now() / 1000) + ttlSeconds;
-    const username = `${expiry}:guest`;
+    const username = `${expiry}:guest`; // userId field is opaque to coturn; "guest" is fine
 
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey(
@@ -155,13 +163,11 @@ async function handleTurn(env: Env, request: Request): Promise<Response> {
     return new Response(
       JSON.stringify({
         iceServers: [
+          // STUN for NAT discovery — needed even when TURN is used.
           { urls: `stun:${env.TURN_DOMAIN}:3478` },
+          // TURNS only — TLS-encrypted relay on the standard secure port.
           {
-            urls: [
-              `turn:${env.TURN_DOMAIN}:3478?transport=udp`,
-              `turn:${env.TURN_DOMAIN}:3478?transport=tcp`,
-              `turns:${env.TURN_DOMAIN}:5349?transport=tcp`,
-            ],
+            urls: `turns:${env.TURN_DOMAIN}:5349?transport=tcp`,
             username,
             credential,
           },
