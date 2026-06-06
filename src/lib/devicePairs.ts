@@ -45,6 +45,18 @@ export interface Pair {
    * sides hit "Add device" instead of one side accepting via link).
    */
   partnerDeviceId?: string;
+  /**
+   * True if the user explicitly renamed this pair locally (via Rename
+   * button). When false, the nickname auto-syncs from the peer's
+   * broadcast nickname (whatever they last set via "What should this
+   * device be called?"). When true, we freeze the local label and stop
+   * accepting peer updates — user's intent wins.
+   *
+   * Default false on freshly-added pairs so the first peer-sync
+   * "discovers" the real name (most users never set a custom local
+   * label, they just want to see what the other device calls itself).
+   */
+  manualNickname?: boolean;
 }
 
 // ---------- Crypto primitives ----------
@@ -193,6 +205,33 @@ export function renamePair(secret: string, nickname: string): boolean {
   const target = pairs.find((p) => p.secret === secret);
   if (!target) return false;
   target.nickname = nickname.trim().slice(0, 40) || "Unnamed device";
+  // User explicitly named this pair — freeze the label so peer-sync
+  // doesn't overwrite it on next roster broadcast.
+  target.manualNickname = true;
+  writePairs(pairs);
+  return true;
+}
+
+/**
+ * Update a pair's nickname from a peer's lobby broadcast. Only writes
+ * if the user hasn't manually renamed (manualNickname falsy). This is
+ * the "Option B" auto-sync behavior: peer's broadcast nickname wins by
+ * default, but local manual renames are sticky.
+ *
+ * Returns true if the nickname was actually changed (callers use this
+ * to decide whether to re-render the UI). Returns false if blocked by
+ * the manual flag OR if the new name matches the existing one.
+ */
+export function syncPeerNickname(secret: string, peerNickname: string): boolean {
+  if (!peerNickname || !peerNickname.trim()) return false;
+  const pairs = readPairs();
+  const target = pairs.find((p) => p.secret === secret);
+  if (!target) return false;
+  // User's manual label wins — never overwrite.
+  if (target.manualNickname) return false;
+  const cleaned = peerNickname.trim().slice(0, 40);
+  if (target.nickname === cleaned) return false;
+  target.nickname = cleaned;
   writePairs(pairs);
   return true;
 }

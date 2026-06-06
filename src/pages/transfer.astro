@@ -752,7 +752,7 @@ import { site } from "../site.config";
       listPairs, listPairsDeduped, upsertPair, removePair, generatePairSecret,
       buildPairUrl, parsePairFragment, getAutoAccept, setAutoAccept,
       deriveRoomId, deriveLobbyId, generateSessionRoomId,
-      setPartnerDeviceId,
+      setPartnerDeviceId, syncPeerNickname,
       getDeviceId, getMyNickname, setMyNickname, hasCustomNickname,
       type Pair,
     } from "../lib/devicePairs";
@@ -3543,21 +3543,33 @@ import { site } from "../site.config";
      * When we see a peer in a pair's lobby, that peer IS the partner for
      * that pair (lobbies are scoped per pair-secret). Persist their
      * deviceId on the pair record + trigger dedup of any other pair we
-     * have that already points at the same partner.
+     * have that already points at the same partner. Also auto-sync the
+     * peer's broadcast nickname into our local pair label (unless the
+     * user manually renamed — manualNickname flag wins).
      */
     const learnPartnerDeviceIds = (h: LobbyHandle) => {
       const myId = getDeviceId();
+      let touchedAnyPair = false;
       for (const peer of h.roster) {
         if (peer.deviceId === myId) continue;
+        // Auto-sync nickname (no-op if user manually renamed).
+        if (syncPeerNickname(h.pair.secret, peer.nickname)) {
+          touchedAnyPair = true;
+        }
         if (h.pair.partnerDeviceId === peer.deviceId) continue;
         const kept = setPartnerDeviceId(h.pair.secret, peer.deviceId);
         // Update our in-memory pair handle (could be the kept one or removed).
         if (kept) {
           h.pair = kept;
         }
-        // Refresh My Devices list since dedup may have removed entries.
-        try { renderDevices(); } catch { /* */ }
+        touchedAnyPair = true;
         break; // exactly one partner per pair
+      }
+      // Refresh My Devices list since dedup may have removed entries
+      // AND/OR nickname may have changed AND/OR online dots may need to
+      // flip (roster event itself is the trigger for presence updates).
+      if (touchedAnyPair) {
+        try { renderDevices(); } catch { /* */ }
       }
     };
 
@@ -3715,6 +3727,11 @@ import { site } from "../site.config";
           handle.roster = peers;
           learnPartnerDeviceIds(handle);
           if (asRole === "sender") renderLobbySenderList();
+          // Always refresh My Devices so online dots flip on every roster
+          // change (peer joined → green, peer left → grey). learnPartner...
+          // only renders on first-learn or dedup; this catches subsequent
+          // online/offline flips for already-known partners.
+          try { renderDevices(); } catch { /* */ }
         });
         lobbyRef.on("invite", (invite) => {
           if (asRole === "receiver") handleIncomingInvite(handle, invite);
@@ -4130,6 +4147,24 @@ import { site } from "../site.config";
     const pairIncomingAccept = $<HTMLButtonElement>("pair-incoming-accept");
     const pairIncomingCancel = $<HTMLButtonElement>("pair-incoming-cancel");
 
+    /**
+     * Returns true if any active lobby for this pair has the partner
+     * device present in its roster. Used for the live online dot in
+     * "My Devices". Independent of activePair (which only goes true
+     * during an actual transfer) — this is "are they reachable RIGHT
+     * NOW for an invite?".
+     */
+    const isPairOnline = (pair: Pair): boolean => {
+      const myId = getDeviceId();
+      for (const h of lobbies) {
+        if (h.pair.secret !== pair.secret) continue;
+        for (const peer of h.roster) {
+          if (peer.deviceId !== myId) return true;
+        }
+      }
+      return false;
+    };
+
     const renderDevices = () => {
       const pairs = listPairsDeduped();
       devicesCount.textContent = pairs.length ? `· ${pairs.length}` : "";
@@ -4152,13 +4187,25 @@ import { site } from "../site.config";
         li.className = "flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3";
         const dot = document.createElement("span");
         const isActive = activePair?.secret === p.secret;
-        dot.className = `size-2.5 rounded-full shrink-0 ${isActive ? "bg-[var(--color-success)]" : "bg-[var(--color-fg-subtle)]"}`;
-        dot.title = isActive ? "Connected now" : "Offline";
+        const isOnline = isPairOnline(p);
+        // Three states:
+        //   - green (connected NOW — actively transferring)
+        //   - blue/online (visible in lobby, ready for invite)
+        //   - grey (offline — no lobby presence)
+        // Falls through priority: active wins over online wins over offline.
+        const dotColor = isActive
+          ? "bg-[var(--color-success)]"
+          : isOnline
+          ? "bg-[var(--color-online,#3b82f6)]"
+          : "bg-[var(--color-fg-subtle)]";
+        dot.className = `size-2.5 rounded-full shrink-0 ${dotColor}`;
+        dot.title = isActive ? "Connected now" : isOnline ? "Online — ready for invite" : "Offline";
         dot.dataset.field = "presence";
         li.appendChild(dot);
         const label = document.createElement("span");
         label.className = "flex-1 text-sm font-medium truncate";
-        label.textContent = p.nickname + (isActive ? " · connected" : "");
+        const suffix = isActive ? " · connected" : isOnline ? " · online" : "";
+        label.textContent = p.nickname + suffix;
         li.appendChild(label);
         const meta = document.createElement("span");
         meta.className = "text-xs text-[var(--color-fg-subtle)]";
