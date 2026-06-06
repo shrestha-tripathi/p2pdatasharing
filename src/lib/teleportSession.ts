@@ -739,17 +739,64 @@ export class TeleportSession {
     }
   }
 
+  /**
+   * Build a network-aware failure message from the current diag state.
+   *
+   * Goal: stop blaming the user. Old copy lumped every failure into
+   * one "your network is bad" string, which left users confused
+   * about what to actually do. Now we inspect the diag snapshot:
+   *
+   *   - 0 remote candidates  → peer never showed up (signaling broke
+   *                            or other side bailed)
+   *   - 0 local relay        → TURN config dead or unreachable from us
+   *   - relay present, still failed → likely both peers blocked from
+   *                                   reaching the TURN server (rare,
+   *                                   corporate firewall on UDP/TCP 5349)
+   *   - default              → strict NAT both sides, no working pair
+   *
+   * Each message ends with the SAME concrete action: refresh + try
+   * different network. We don't expose technical jargon (ICE, NAT,
+   * STUN, TURN) to end users.
+   */
+  private buildFailureMessage(): string {
+    const localRelay = this.candidateTypes.relay;
+    const remoteCount = this.candidatesReceived;
+    const stillChecking = this.peer.iceConnectionState === "checking";
+
+    if (remoteCount === 0) {
+      return (
+        "We couldn't reach the other device — they may have closed the page " +
+        "or lost signal. Ask them to refresh and re-pair, then try again."
+      );
+    }
+    if (localRelay === 0) {
+      return (
+        "Our relay servers are temporarily unreachable. This usually clears " +
+        "up in a few seconds — please try again. If it keeps failing, your " +
+        "network may be blocking outbound traffic on port 5349."
+      );
+    }
+    if (stillChecking) {
+      return (
+        "Both networks are too restrictive for a direct connection. Try " +
+        "one of these: (1) one peer switch to mobile data, (2) one peer " +
+        "switch to home Wi-Fi, or (3) enable Paranoid mode below to " +
+        "exchange the handshake manually."
+      );
+    }
+    return (
+      "Connection didn't come together in 15 seconds. This usually means " +
+      "one peer is behind a strict carrier or corporate network. Try a " +
+      "different Wi-Fi on one side, or enable Paranoid mode below."
+    );
+  }
+
   private startConnectTimer() {
     this.clearConnectTimer();
     this.connectTimer = setTimeout(() => {
       if (this.peer.connectionState !== "connected") {
         this.emitter.emit("state", "failed");
-        this.emitter.emit(
-          "error",
-          new Error(
-            "Could not establish a direct connection within 15s. This usually happens on strict mobile networks (carrier NAT) or corporate firewalls. Try: (a) one peer switch to Wi-Fi, or (b) flip on Paranoid mode and exchange the handshake manually.",
-          ),
-        );
+        this.emitter.emit("error", new Error(this.buildFailureMessage()));
       }
     }, CONNECT_TIMEOUT_MS);
   }
