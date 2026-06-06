@@ -73,6 +73,23 @@ export interface DiagSnapshot {
   candidatesGathered: number;
   candidatesReceived: number;
   candidateTypes: { host: number; srflx: number; relay: number; prflx: number };
+  /**
+   * The actual ICE candidate pair the connection is using right now,
+   * as reported by RTCPeerConnection.getStats(). This is the ONLY honest
+   * source of "are we relayed?" — counting gathered candidate types
+   * (above) is misleading because one peer can gather a relay candidate
+   * "just in case" while the connection actually uses host↔srflx.
+   *
+   * Both peers ALWAYS agree on selectedPair (they're using the same pair),
+   * so this is what powers the user-facing "Direct P2P / Relayed via TURN"
+   * label. Null until getStats() has surfaced a nominated pair.
+   */
+  selectedPair: {
+    local: RTCIceCandidateType | "unknown";
+    remote: RTCIceCandidateType | "unknown";
+    /** "relay" if either side is relay, else "direct". */
+    summary: "direct" | "relay" | "unknown";
+  } | null;
 }
 
 const DEFAULT_ICE: RTCIceServer[] = [
@@ -178,6 +195,20 @@ export class TeleportSession {
   private candidatesReceived = 0;
   private candidateTypes = { host: 0, srflx: 0, relay: 0, prflx: 0 };
   /**
+   * Cached result of the latest `pc.getStats()` walk for the nominated
+   * candidate pair. Lives here (instead of being computed fresh on every
+   * emitDiag) because getStats() is async — and emitDiag fires from
+   * synchronous event handlers (onicecandidate, oniceconnectionstatechange).
+   *
+   * `refreshSelectedPair()` re-walks getStats and stashes the result here.
+   * We schedule that walk every time peerConnection flips state and every
+   * 2s while connected, which is plenty — once a pair is nominated it
+   * generally doesn't change without an ICE restart (which itself flips
+   * the connection state and re-triggers).
+   */
+  private selectedPair: DiagSnapshot["selectedPair"] = null;
+  private selectedPairPoller: ReturnType<typeof setInterval> | null = null;
+  /**
    * Whether this session is in paranoid (manual SDP) mode. In paranoid
    * mode we never auto-time-out — humans pace the handshake by copy-pasting
    * blobs over a side channel, which can take arbitrarily long.
@@ -227,7 +258,93 @@ export class TeleportSession {
       candidatesGathered: this.cachedCandidates.length,
       candidatesReceived: this.candidatesReceived,
       candidateTypes: { ...this.candidateTypes },
+      selectedPair: this.selectedPair,
     });
+  }
+
+  /**
+   * Walk `pc.getStats()`, find the nominated candidate-pair, and stash
+   * its local/remote candidate types on `this.selectedPair`. Cheap (<5ms
+   * typical), fires emitDiag if anything changed so the UI updates.
+   *
+   * Stats walk:
+   *   1. Find the candidate-pair where `nominated === true` AND
+   *      `state === "succeeded"` — this is the live in-use pair.
+   *   2. Look up its localCandidateId / remoteCandidateId entries.
+   *   3. Read each one's `candidateType` (host | srflx | prflx | relay).
+   *
+   * If either side is "relay" we summarize as "relay" (any relay leg
+   * means traffic is going through TURN). Otherwise "direct".
+   */
+  private async refreshSelectedPair() {
+    if (this.peer.connectionState !== "connected") {
+      // Not connected yet — clear stale data so UI doesn't show wrong info.
+      if (this.selectedPair !== null) {
+        this.selectedPair = null;
+        this.emitDiag();
+      }
+      return;
+    }
+    try {
+      const stats = await this.peer.getStats();
+      let pair: RTCIceCandidatePairStats | null = null;
+      stats.forEach((s) => {
+        if (s.type === "candidate-pair" && (s as RTCIceCandidatePairStats).nominated && (s as RTCIceCandidatePairStats).state === "succeeded") {
+          pair = s as RTCIceCandidatePairStats;
+        }
+      });
+      if (!pair) return;
+
+      let localType: RTCIceCandidateType | "unknown" = "unknown";
+      let remoteType: RTCIceCandidateType | "unknown" = "unknown";
+      // Minimal shape we read from local-candidate / remote-candidate stats —
+      // RTCIceCandidateStats isn't in the default DOM lib in this TS version,
+      // so we duck-type only the field we need.
+      type CandStats = { candidateType?: RTCIceCandidateType };
+      stats.forEach((s) => {
+        if (s.type === "local-candidate" && s.id === (pair as RTCIceCandidatePairStats).localCandidateId) {
+          localType = (s as unknown as CandStats).candidateType ?? "unknown";
+        }
+        if (s.type === "remote-candidate" && s.id === (pair as RTCIceCandidatePairStats).remoteCandidateId) {
+          remoteType = (s as unknown as CandStats).candidateType ?? "unknown";
+        }
+      });
+
+      const summary: "direct" | "relay" | "unknown" =
+        localType === "unknown" || remoteType === "unknown"
+          ? "unknown"
+          : localType === "relay" || remoteType === "relay"
+          ? "relay"
+          : "direct";
+
+      const next = { local: localType, remote: remoteType, summary };
+      // Only emit if changed (avoid spamming UI updates every 2s).
+      const prev = this.selectedPair;
+      if (!prev || prev.local !== next.local || prev.remote !== next.remote || prev.summary !== next.summary) {
+        this.selectedPair = next;
+        this.emitDiag();
+      }
+    } catch {
+      // getStats() rarely throws but if it does, just leave stale data.
+    }
+  }
+
+  /** Start polling getStats every 2s while connected. Idempotent. */
+  private startSelectedPairPolling() {
+    if (this.selectedPairPoller) return;
+    // Fire immediately so the first label lands fast (no 2s wait).
+    void this.refreshSelectedPair();
+    this.selectedPairPoller = setInterval(() => {
+      void this.refreshSelectedPair();
+    }, 2000);
+  }
+
+  /** Stop polling. Called on disconnect/teardown. */
+  private stopSelectedPairPolling() {
+    if (this.selectedPairPoller) {
+      clearInterval(this.selectedPairPoller);
+      this.selectedPairPoller = null;
+    }
   }
 
   constructor(private opts: CreateSessionOptions) {
@@ -263,10 +380,19 @@ export class TeleportSession {
         this.clearIceRestartTimer();
         this.emitter.emit("state", "connected");
         this.closeSignaling();
+        // Start polling getStats() so DiagSnapshot.selectedPair gets
+        // populated — this is what powers the honest "Direct P2P / Relayed
+        // via TURN" label. Counting gathered candidate types is a lie:
+        // one peer can gather a relay candidate "just in case" while the
+        // selected pair is actually host↔srflx, leading to asymmetric
+        // labels between sender and receiver.
+        this.startSelectedPairPolling();
       } else if (s === "disconnected") {
         this.emitter.emit("state", "disconnected");
+        this.stopSelectedPairPolling();
       } else if (s === "failed") {
         this.emitter.emit("state", "failed");
+        this.stopSelectedPairPolling();
       }
       fireDiag();
     };
@@ -536,12 +662,14 @@ export class TeleportSession {
    */
   private async restartAsHost() {
     // Tear down old PC + DC.
+    this.stopSelectedPairPolling();
     try { this.dataChannel?.close(); } catch { /* noop */ }
     try { this.peer.close(); } catch { /* noop */ }
     this.dataChannel = null;
     this.cachedCandidates = [];
     this.candidatesReceived = 0;
     this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+    this.selectedPair = null;
 
     // Rebuild PC with same ICE config.
     const cfg = { iceServers: this.opts.iceServers ?? DEFAULT_ICE };
@@ -855,12 +983,14 @@ export class TeleportSession {
     this.emitter.emit("state", "signaling");
 
     // Tear down old PC + DC.
+    this.stopSelectedPairPolling();
     try { this.dataChannel?.close(); } catch { /* noop */ }
     try { this.peer.close(); } catch { /* noop */ }
     this.dataChannel = null;
     this.cachedCandidates = [];
     this.candidatesReceived = 0;
     this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+    this.selectedPair = null;
 
     // Rebuild with relay-forced policy. Re-use whatever iceServers
     // the current peer already had (which includes the freshly-applied
@@ -1032,6 +1162,7 @@ export class TeleportSession {
       // stats reflect everything we ever heard, not just the latest gen.
       this.cachedCandidates = [];
       this.candidateTypes = { host: 0, srflx: 0, prflx: 0, relay: 0 };
+      this.selectedPair = null;
 
       // peer.restartIce() is the modern entry point (Chrome 77+, Safari
       // 14+, Firefox 70+). Older browsers fall through to the
@@ -1076,6 +1207,7 @@ export class TeleportSession {
     this.destroyed = true;
     this.clearConnectTimer();
     this.clearIceRestartTimer();
+    this.stopSelectedPairPolling();
     this.closeSignaling();
     try { this.dataChannel?.close(); } catch { /* noop */ }
     try { this.peer.close(); } catch { /* noop */ }

@@ -1373,9 +1373,22 @@ import { site } from "../site.config";
      * tell exactly where things are stuck.
      */
     const updateLiveStatus = (d: DiagSnapshot) => {
-      // Already connected? Don't second-guess.
+      // Already connected? Show the HONEST connection type by reading
+      // the actual selected candidate pair via getStats() (DiagSnapshot
+      // .selectedPair). Counting gathered candidate types is misleading
+      // because one peer can gather a relay candidate "just in case"
+      // while the live connection uses host↔srflx — leading to asymmetric
+      // labels between sender and receiver. The selected pair is the
+      // single source of truth both peers agree on.
       if (d.peerConnection === "connected") {
-        setStatus("connected", `${d.candidateTypes.relay > 0 ? "Relayed via TURN" : "Direct P2P"} · ${d.candidatesGathered} local / ${d.candidatesReceived} remote candidates`);
+        const pairLabel = d.selectedPair
+          ? d.selectedPair.summary === "relay"
+            ? `Relayed via TURN (${d.selectedPair.local}↔${d.selectedPair.remote})`
+            : d.selectedPair.summary === "direct"
+            ? `Direct P2P (${d.selectedPair.local}↔${d.selectedPair.remote})`
+            : "Connection type unknown"
+          : "Detecting connection type…";
+        setStatus("connected", `${pairLabel} · ${d.candidatesGathered} local / ${d.candidatesReceived} remote candidates`);
         return;
       }
       if (d.peerConnection === "failed") {
@@ -1456,6 +1469,15 @@ import { site } from "../site.config";
         cell("Local candidates", `${d.candidatesGathered}`) +
         cell("Remote candidates", `${d.candidatesReceived}`) +
         cell("Cand types", candSummary(d.candidateTypes)) +
+        cell("Selected pair",
+          d.selectedPair
+            ? `${d.selectedPair.local}↔${d.selectedPair.remote}`
+            : "—",
+          d.selectedPair?.summary === "relay"
+            ? "var(--color-warning, var(--color-fg))"
+            : d.selectedPair?.summary === "direct"
+            ? "var(--color-success)"
+            : "var(--color-fg-muted)") +
         cell("Peak throughput", peakRatePerSec > 0 ? formatRate(peakRatePerSec) : "—",
           peakRatePerSec > 0 ? "var(--color-success)" : "var(--color-fg-muted)") +
         cell("Session ↑ sent",
