@@ -893,6 +893,26 @@ import { site } from "../site.config";
      *  can surface the trusted badge + disconnect button. Cleared on
      *  destroy/disconnect. */
     let activePair: Pair | null = null;
+
+    /**
+     * Centralized "this device is now idle" hook, captured by closure
+     * over `lobbies` (declared later in this script). Assigned during
+     * lobby init below; defaults to a no-op so cleanup paths can call
+     * it unconditionally even before lobbies exist.
+     *
+     * Why this exists: every session-cleanup site (failure recovery,
+     * manual disconnect, declined invite, paired-probe failure, bootRole
+     * reset, beforeunload) MUST broadcast role="available" to peers AND
+     * clear the local receiverBusy flag. Without it, a refresh on one
+     * side leaves the other peer's roster showing us in "sending"/
+     * "receiving" forever — making our row appear disabled with
+     * "Receiving…" or triggering the misleading "already active in
+     * another session" decline.
+     *
+     * Centralizing into one helper means new cleanup paths don't need
+     * to remember the two-step (setRole + receiverBusy) reset.
+     */
+    let markIdle: () => void = () => { /* no-op until lobbies are wired up */ };
     // One-shot auto-recovery: if a sender's connection fails, rebuild on a fresh
     // room without bothering the user. Reset on manual retry or successful link.
     let autoReconnectAttempted = false;
@@ -1862,6 +1882,12 @@ import { site } from "../site.config";
             session = null;
             role = null;
             activePair = null;
+            // Reset lobby role to "available" + clear receiverBusy so the
+            // OTHER peer (who's still in the lobby) sees us as idle, and
+            // so future invites are accepted. Without this, refreshing
+            // one side leaves the other side's roster showing us
+            // "Receiving…" or "Busy sending" forever.
+            markIdle();
             // Reset UI bits that only make sense when connected.
             transferPanel.classList.add("hidden");
             chatPanel.classList.add("hidden");
@@ -3165,6 +3191,16 @@ import { site } from "../site.config";
     // don't keep firing invite handlers.
     let receiverBusy = false;
 
+    // Wire up the real markIdle now that lobbies + receiverBusy exist.
+    // Cleanup callers anywhere in the script can invoke markIdle()
+    // unconditionally — this overrides the no-op stub declared above.
+    markIdle = () => {
+      receiverBusy = false;
+      for (const h of lobbies) {
+        try { h.lobby.setRole("available"); } catch { /* lobby may be dead — fine */ }
+      }
+    };
+
     // DOM refs for the lobby UI
     const lobbySenderPanel = $("lobby-sender");
     const lobbySenderList = $<HTMLUListElement>("lobby-sender-list");
@@ -3413,6 +3449,10 @@ import { site } from "../site.config";
             try { session?.destroy(); } catch { /* */ }
             session = null;
             pendingInvite = null;
+            // Decline path also leaves us in role "sending" — roll back
+            // to "available" so this device shows clickable in our own
+            // roster + peers' rosters.
+            markIdle();
           }
         });
         lobbyRef.on("error", (msg) => addWarning(`Lobby (${pair.nickname}): ${msg}`));
@@ -3554,6 +3594,9 @@ import { site } from "../site.config";
             try { s.destroy(); } catch {}
             session = null;
             role = null;
+            // Probe failed (no connection landed) — reset advertised role
+            // so the partner's roster doesn't show us as "sending" stuck.
+            markIdle();
           }
         } catch (e) {
           addWarning(`Pair "${pair.nickname}" probe failed: ${(e as Error).message}`);
@@ -3673,6 +3716,9 @@ import { site } from "../site.config";
       everConnectedThisSession = false;
       session?.destroy();
       session = null;
+      // Always start a fresh role boot in an "available" lobby state,
+      // even if the previous session ended dirty.
+      markIdle();
       transfer = null;
       chat = null;
       lastSessionState = "idle";
@@ -4548,12 +4594,43 @@ import { site } from "../site.config";
 
     // ---------- Manual disconnect ----------
     const discBtn = document.getElementById("manual-disconnect") as HTMLButtonElement | null;
+
+    /**
+     * Best-effort "leave the lobby cleanly" handler for tab close/refresh.
+     *
+     * Why both events: `pagehide` fires reliably on mobile browsers
+     * (especially iOS Safari) where `beforeunload` is unreliable —
+     * Safari treats `beforeunload` as a discouraged "stay on page"
+     * prompt. `pagehide` is the modern way.
+     *
+     * Why best-effort: WebSocket.send() during page-unload is allowed
+     * but the OS may drop the frame if it doesn't make it onto the
+     * wire before the process is reaped. Acceptable — even if dropped,
+     * the LobbyDO's WS-close detection will eventually fire (~10-30s)
+     * and stale peers will fall off the roster. This handler just
+     * shrinks that gap to instant when it works.
+     *
+     * Also tears down session.destroy() for the same reason —
+     * RTCPeerConnection.close() sends a goodbye DTLS alert that's
+     * helpful for the peer's RTCPC.onconnectionstatechange.
+     */
+    const cleanupOnUnload = () => {
+      try { markIdle(); } catch { /* */ }
+      try { session?.destroy(); } catch { /* */ }
+    };
+    window.addEventListener("pagehide", cleanupOnUnload);
+    window.addEventListener("beforeunload", cleanupOnUnload);
+
     discBtn?.addEventListener("click", () => {
       if (!confirm("Disconnect from this peer? You'll need to reconnect manually (or auto-reconnect if paired).")) return;
       try { session?.destroy(); } catch {}
       session = null;
       role = null;
       activePair = null;
+      // Tell our paired peers we're idle again — without this, the other
+      // side's roster keeps us pinned in "sending"/"receiving" state
+      // until their next ping or our roster broadcast catches up.
+      markIdle();
       // Hide UI bits that don't make sense post-disconnect.
       discBtn.classList.add("hidden");
       const badge = document.getElementById("chat-trusted-badge");
