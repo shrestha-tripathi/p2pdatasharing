@@ -83,19 +83,22 @@ Same flow as 1.1 but with a 1+ GB file.
 Same as 1.1 but drag 5 files at once.
 ✅ **Expected:** Queue shows all 5 as pending → 1 active + 4 queued → completes one-by-one without manual nudging.
 
-### 1.4 Folder send (zipped)
+### 1.4 Folder send (preserves tree)
 **Steps:**
-1. Click "Pick folder (zipped)" on sender
-2. Pick a folder with ~20 files
+1. Click "Pick folder" on sender
+2. Pick a folder with ~20 files in nested subdirectories
 3. Send
 
-✅ **Expected:** Folder zipped on client → sent as single .zip → receiver downloads + can extract.
+✅ **Expected:** Each file streams individually (NOT zipped first — sender stays responsive, transfer starts immediately). Receiver's "Save all to folder" bar shows `N files · X folders preserved`. On Save All → uses Chromium `showDirectoryPicker` → recreates the directory tree.
 
-### 1.5 Receiver "Save all" works
+📝 **Note:** We intentionally do NOT zip on the sender — streaming individual files is faster (instant start vs. wait-for-zip), lower memory, and survives mid-transfer cancel. Receiver reconstructs the tree via `webkitRelativePath` metadata.
+
+### 1.5 Receiver "Save all to folder" works
 After 1.3 (multi-file) completes:
-1. Click "Save all (.zip)" on receiver
+1. Click "Save all to folder" on receiver
+2. Pick a destination folder when prompted
 
-✅ **Expected:** All files bundled into one .zip download.
+✅ **Expected:** All files saved to picked folder in one click. Chromium-only feature (Chrome/Edge/Brave) — button is hidden on Firefox/Safari, user falls back to per-file save.
 
 ### 1.6 Chat works alongside transfer
 **Steps:**
