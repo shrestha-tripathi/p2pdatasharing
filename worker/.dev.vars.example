@@ -1,10 +1,37 @@
-# Cloudflare Workers local dev secrets.
-# Copy to `.dev.vars` (gitignored) and fill in real values for local `wrangler dev`.
+# Cloudflare Workers local dev + deploy credentials.
+# Copy to `.dev.vars` (gitignored) and fill in real values.
 #
-# For PRODUCTION secrets: use `wrangler secret put NAME` instead.
-# See worker/scripts/restore-prod-secrets.sh — one-command restore for prod.
+# `.dev.vars` is used by:
+#   - `wrangler dev` — local worker development
+#   - `worker/scripts/restore-prod-secrets.sh` — one-command prod restore
+#
+# For PRODUCTION secrets ON the worker: use `wrangler secret put NAME` instead.
+# (Or just run restore-prod-secrets.sh which uses these values to do that.)
 #
 # NOTE: TURN_DOMAIN + ALLOWED_ORIGINS now live in wrangler.toml [vars] section
-# (they're not secrets, just config). Only TURN_SHARED_SECRET is here.
+# (they're not secrets, just config). Only secrets/credentials are here.
 
+# === Coturn HMAC key (the only true worker SECRET) ===
+# Copy from /etc/turnserver.conf → `static-auth-secret=` line on the TURN VM:
+#   ssh azureuser@4.240.101.24 'sudo grep static-auth-secret /etc/turnserver.conf'
 TURN_SHARED_SECRET="paste-coturn-static-auth-secret-here"
+
+# === Cloudflare API token (optional but recommended) ===
+# Skips wrangler's interactive OAuth login. Create at:
+#   https://dash.cloudflare.com/profile/api-tokens → Create Custom Token
+#
+# Required permissions (minimum):
+#   - Account → Workers Scripts → Edit
+#   - User    → User Details    → Read
+#
+# Account Resources: Include → <your account>
+# TTL: leave unset (or set if you're paranoid)
+#
+# Copy IMMEDIATELY after creation — Cloudflare shows it only once.
+CLOUDFLARE_API_TOKEN="paste-cloudflare-api-token-here"
+
+# === Cloudflare account ID ===
+# From dash.cloudflare.com → click account → URL shows /<ACCOUNT_ID>/...
+# Or right sidebar of Workers & Pages page.
+# Required if your CF user has >1 account; harmless to set otherwise.
+CLOUDFLARE_ACCOUNT_ID="paste-cloudflare-account-id-here"
