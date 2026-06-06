@@ -582,15 +582,23 @@ import { site } from "../site.config";
       <!-- Per-file rows -->
       <ul id="file-list" class="mt-4 space-y-3"></ul>
 
-      <!-- "Save all to folder" — appears when 2+ files received -->
+      <!-- "Save all" — appears when 2+ files received. Two buttons:
+           - "Save all to folder" (Chromium-only, uses showDirectoryPicker → preserves tree)
+           - "Download as .zip" (always available, single zip file via client-zip) -->
       <div id="save-all-bar" class="hidden mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-3 flex items-center justify-between gap-3 flex-wrap">
         <div class="flex items-center gap-2 min-w-0">
           <svg class="text-[var(--color-fg-muted)] shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           <p class="text-sm text-[var(--color-fg-muted)]">
-            <span id="save-all-summary">2 files ready</span> — save them all to one folder in one click.
+            <span id="save-all-summary">2 files ready</span>
           </p>
         </div>
-        <button id="save-all-btn" type="button" class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Save all to folder</button>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="save-all-zip-btn" type="button" class="h-9 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 text-sm font-medium text-[var(--color-fg)] hover:bg-[var(--color-bg-subtle)] inline-flex items-center gap-1.5">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+            Download as .zip
+          </button>
+          <button id="save-all-btn" type="button" class="hidden h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90">Save all to folder</button>
+        </div>
       </div>
 
       <!-- Peer-tab-hidden banner: shown when peer's tab is backgrounded -->
@@ -875,6 +883,7 @@ import { site } from "../site.config";
     const saveAllBar = $("save-all-bar");
     const saveAllSummary = $("save-all-summary");
     const saveAllBtn = $<HTMLButtonElement>("save-all-btn");
+    const saveAllZipBtn = $<HTMLButtonElement>("save-all-zip-btn");
     const warnings = $("warnings");
     // Chat
     const chatPanel = $("chat-panel");
@@ -1071,9 +1080,18 @@ import { site } from "../site.config";
 
     const refreshSaveAllBar = () => {
       const unsaved = receivedItems.filter((r) => !r.saved);
-      if (!supportsDirectoryPicker || unsaved.length < 2) {
+      // Bar appears for ANY 2+ unsaved files — zip button always works.
+      // Folder-picker button is shown only on Chromium browsers that support
+      // the showDirectoryPicker API; everyone else still gets the zip option.
+      if (unsaved.length < 2) {
         saveAllBar.classList.add("hidden");
         return;
+      }
+      // Toggle folder button visibility (only render if browser supports it).
+      if (supportsDirectoryPicker) {
+        saveAllBtn.classList.remove("hidden");
+      } else {
+        saveAllBtn.classList.add("hidden");
       }
       const totalBytes = unsaved.reduce((a, r) => a + r.file.size, 0);
       // Detect folder-aware items so we can advertise the tree-preserving
@@ -1141,6 +1159,101 @@ import { site } from "../site.config";
         }
         saveAllBtn.disabled = false;
         saveAllBtn.textContent = originalText || "Save all to folder";
+      }
+    });
+
+    /**
+     * "Download as .zip" — universal fallback that works on every browser
+     * (no showDirectoryPicker dependency). Uses client-zip to stream files
+     * into a single .zip blob, then triggers a normal browser download.
+     *
+     * For folder-aware items, the path (e.g. "MyPhotos/2024/IMG_1.jpg") is
+     * preserved INSIDE the zip — extracting recreates the directory tree
+     * exactly the same way "Save all to folder" would.
+     *
+     * Streamed: we read the client-zip Response body chunk-by-chunk into
+     * a Blob so we can show progress without holding the whole zip in memory
+     * twice. Final blob is what gets handed to the download anchor.
+     */
+    saveAllZipBtn.addEventListener("click", async () => {
+      const unsaved = receivedItems.filter((r) => !r.saved);
+      if (unsaved.length === 0) return;
+      saveAllZipBtn.disabled = true;
+      const originalText = saveAllZipBtn.textContent;
+      saveAllZipBtn.textContent = "Zipping…";
+      try {
+        // client-zip wants { name, lastModified, input }. We use the file's
+        // path (if folder-aware) so extraction recreates the tree, else
+        // just the bare filename.
+        const zipResponse = downloadZip(
+          unsaved.map((r) => ({
+            name: r.path || r.name,
+            lastModified: new Date(r.file.lastModified),
+            input: r.file,
+          })),
+        );
+        const totalUncompressed = unsaved.reduce((a, r) => a + r.file.size, 0);
+        const reader = zipResponse.body!.getReader();
+        const chunks: Uint8Array[] = [];
+        let bytesSoFar = 0;
+        let lastEmit = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          bytesSoFar += value.byteLength;
+          const now = performance.now();
+          if (now - lastEmit > 100) {
+            // Estimate progress against UNCOMPRESSED total — zip ratio
+            // varies wildly (already-compressed media ≈ 1.0, text/code ≈ 0.3),
+            // so progress can briefly cap and then jump as compression
+            // ratio reveals itself. Good enough for a button label.
+            const pct = Math.min(99, Math.round((bytesSoFar / totalUncompressed) * 100));
+            saveAllZipBtn.textContent = `Zipping ${pct}%…`;
+            lastEmit = now;
+          }
+        }
+        const blob = new Blob(chunks as BlobPart[], { type: "application/zip" });
+
+        // Filename: if everything came from one root folder, use that name.
+        // Otherwise generic "filetransfernow-N-files-YYYY-MM-DD.zip".
+        const anyFolder = unsaved.some((r) => r.path);
+        const rootFolders = anyFolder
+          ? new Set(unsaved.filter((r) => r.path).map((r) => r.path!.split("/")[0]))
+          : new Set<string>();
+        const ts = new Date().toISOString().slice(0, 10);
+        const zipName =
+          rootFolders.size === 1
+            ? `${[...rootFolders][0]}.zip`
+            : `filetransfernow-${unsaved.length}-files-${ts}.zip`;
+
+        // Trigger download via temporary anchor — universal, no APIs needed.
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = zipName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        // Revoke after a tick — some browsers (Safari) need the URL alive
+        // briefly after click to actually trigger the download.
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+        // Mark all included items as saved so the bar collapses naturally.
+        // Note: this is a soft mark — user got the zip, but their individual
+        // download buttons still work if they want copies (item.saved gates
+        // visibility in the "Save all" bar only, not the per-row buttons).
+        for (const item of unsaved) item.saved = true;
+        saveAllZipBtn.textContent = `✓ Downloaded ${zipName}`;
+        setTimeout(() => {
+          saveAllZipBtn.disabled = false;
+          saveAllZipBtn.textContent = originalText || "Download as .zip";
+          refreshSaveAllBar();
+        }, 2000);
+      } catch (e) {
+        addWarning(`Zip download failed: ${(e as Error).message}`);
+        saveAllZipBtn.disabled = false;
+        saveAllZipBtn.textContent = originalText || "Download as .zip";
       }
     });
 

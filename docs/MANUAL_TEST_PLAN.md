@@ -93,12 +93,26 @@ Same as 1.1 but drag 5 files at once.
 
 📝 **Note:** We intentionally do NOT zip on the sender — streaming individual files is faster (instant start vs. wait-for-zip), lower memory, and survives mid-transfer cancel. Receiver reconstructs the tree via `webkitRelativePath` metadata.
 
-### 1.5 Receiver "Save all to folder" works
-After 1.3 (multi-file) completes:
-1. Click "Save all to folder" on receiver
-2. Pick a destination folder when prompted
+### 1.5 Receiver "Save all" works (two options)
+After 1.3 (multi-file) completes, the Save All bar shows **two buttons**:
 
-✅ **Expected:** All files saved to picked folder in one click. Chromium-only feature (Chrome/Edge/Brave) — button is hidden on Firefox/Safari, user falls back to per-file save.
+**Option A — Download as .zip (every browser):**
+1. Click "Download as .zip" on receiver
+2. Wait for "Zipping X%…" → browser download triggers
+
+✅ **Expected:**
+- Zip filename uses folder name if applicable (e.g. `MyPhotos.zip`), otherwise `filetransfernow-N-files-YYYY-MM-DD.zip`
+- All files inside the zip; folder structure preserved if folder-aware items
+- Works on Firefox, Safari, Chrome, Edge — universal fallback
+
+**Option B — Save all to folder (Chromium only):**
+1. Click "Save all to folder" on receiver
+2. Pick a destination folder
+
+✅ **Expected:**
+- Button hidden on Firefox/Safari (only "Download as .zip" shown there)
+- Files written directly to picked folder, tree recreated for folder-aware items
+- No zip step — native filesystem writes
 
 ### 1.6 Chat works alongside transfer
 **Steps:**
