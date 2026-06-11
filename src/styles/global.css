@@ -201,3 +201,125 @@ html[data-theme="dark"] .astro-code span {
   #drop-zone-label.is-dragover,
   #drop-zone-label.is-dragover .drop-plus { transform: none; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Document Picture-in-Picture mode.
+ *
+ * When the user pops the transfer UI into a floating window, our JS
+ * (src/lib/pipWindow.ts) adds the `.pip-mode` class to the PiP
+ * document's <html> element. All rules below apply ONLY inside the
+ * PiP document — the origin tab is unaffected.
+ *
+ * The PiP window starts at 400x640 px (matches the sm: Tailwind
+ * breakpoint), so we override container max-widths, hide chrome that
+ * doesn't make sense in a floating window (page footer, header brand
+ * text, theme/help toggles — the PiP title bar handles close), and
+ * tighten padding so vertical space goes to actual content.
+ *
+ * :where() keeps specificity at 0 so individual elements can still
+ * override via normal Tailwind utilities or inline styles.
+ * ─────────────────────────────────────────────────────────────── */
+:where(.pip-mode) body {
+  padding: 0;
+  margin: 0;
+  /* PiP window already provides a chrome boundary — kill any tab-mode
+     min-height that assumed a full viewport. */
+  min-height: 100%;
+}
+
+:where(.pip-mode) main {
+  /* Origin tab's <main> uses max-w-[1000px] + px-4/md:px-8 + py-10/md:py-16
+     — all designed for a desktop tab. In a 400px PiP window those
+     constraints leave almost no usable width. Override to full width +
+     tight padding. */
+  max-width: 100% !important;
+  padding: 0.75rem !important;
+}
+
+/* The header is meaningful (status pill + connection state lives there
+   via the existing UI) but the brand title + workspace label compete
+   for the limited horizontal space with no payoff inside a PiP window
+   that already has its own title bar.
+   Hide the title/workspace block but keep the controls row. */
+:where(.pip-mode) main > header > div:first-child {
+  display: none;
+}
+
+/* In the controls row inside header, hide elements that are redundant
+   inside PiP:
+   - sound toggle (still works, but rarely changed in mid-transfer)
+   - help toggle (keyboard shortcuts don't apply when focus is in the
+     floating window — most fire on the origin tab anyway)
+   - PiP toggle button itself (PiP window has its own close X in the
+     title bar; clicking the in-tab toggle would be confusing here)
+   We keep the nickname input + paranoid mode toggle since those affect
+   live behavior. */
+:where(.pip-mode) #sound-toggle,
+:where(.pip-mode) #help-toggle,
+:where(.pip-mode) #pip-toggle {
+  display: none;
+}
+
+/* The header row was flex-col on mobile / flex-row from sm: up. Inside
+   PiP at 400px we want it to behave like the mobile layout — stack
+   vertically with smaller gap so we don't push the transfer panel below
+   the fold. */
+:where(.pip-mode) main > header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+/* Tighten the controls row's spacing so everything fits on one line
+   (or two if it must wrap). */
+:where(.pip-mode) main > header > div:last-child {
+  gap: 0.75rem;
+  font-size: 0.8125rem;
+}
+
+/* Section spacing tightens — 400px doesn't need 40px gaps. */
+:where(.pip-mode) main > section {
+  margin-bottom: 0.75rem;
+  padding: 0.875rem;
+}
+
+/* The role-picker shows two side-by-side options on desktop (grid-cols-2).
+   In 400px those become unreadable thin columns — force single column. */
+:where(.pip-mode) #role-picker .grid {
+  grid-template-columns: 1fr !important;
+  gap: 0.5rem;
+}
+
+/* My Devices panel — the summary row gets cramped. Tighten its padding
+   so the open/closed chevron still has somewhere to land. */
+:where(.pip-mode) #devices-panel summary {
+  padding: 0.75rem;
+}
+
+/* The QR code modal/panel uses fixed sizing that overflows 400px.
+   Scale down to fit. */
+:where(.pip-mode) #devices-pair-qr svg,
+:where(.pip-mode) #devices-pair-qr canvas {
+  max-width: 100% !important;
+  height: auto !important;
+}
+
+/* Chat panel inside PiP — keep it but bound the height so we don't
+   push the transfer rows off-screen. Existing chat-panel is flex-col
+   already; cap its body height. */
+:where(.pip-mode) #chat-panel {
+  margin-top: 0.75rem;
+  max-height: 240px;
+}
+
+/* Footer / marketing CTAs that exist outside <main> aren't moved into
+   PiP anyway (we move <main>'s children only). But the bring-back
+   placeholder shouldn't appear inside PiP — defensive hide. */
+:where(.pip-mode) #pip-placeholder {
+  display: none !important;
+}
+
+/* The PiP placeholder shown in the ORIGIN tab uses our normal layout —
+   nothing to override here. The .pip-mode scope means none of the
+   above leaks into origin. */
