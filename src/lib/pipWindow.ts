@@ -38,7 +38,13 @@ type PipHandle = {
 };
 
 type OpenPipOptions = {
-  /** Element whose children will be moved into the PiP window. */
+  /**
+   * Element to move into the PiP window. The element ITSELF is
+   * reparented — not its children — so CSS selectors scoped to this
+   * element (e.g. `main > header`) keep matching inside the PiP doc.
+   * Caller is responsible for choosing an element whose absence from
+   * the origin doc is acceptable while PiP is open (e.g. <main>).
+   */
   sourceEl: HTMLElement;
   /** Element displayed in the origin tab while PiP is open. */
   placeholderEl: HTMLElement;
@@ -136,13 +142,28 @@ export async function openPip(opts: OpenPipOptions): Promise<PipHandle | null> {
   //    sensible. Default: "📺 <origin title>".
   pipWindow.document.title = opts.pipTitle ?? `📺 ${document.title}`;
 
-  // 4) THE LOAD-BEARING MOVE. `append(...childNodes)` reparents each
-  //    node — does NOT clone, does NOT rebuild. All event listeners,
-  //    closures, WebRTC handles, MediaStream refs survive intact.
+  // 4) THE LOAD-BEARING MOVE. `append(sourceEl)` reparents the element
+  //    itself into the PiP body — does NOT clone, does NOT rebuild.
+  //    All event listeners, closures, WebRTC handles, MediaStream refs
+  //    survive intact because the underlying JS object doesn't change
+  //    identity, only its parent does.
   //
-  //    We MUST snapshot childNodes into an array first — `childNodes` is
-  //    a live NodeList and would mutate underneath the spread iterator.
-  pipWindow.document.body.append(...Array.from(opts.sourceEl.childNodes));
+  //    Critical: we move the ELEMENT, not its children. Earlier v1
+  //    moved childNodes which left an empty <main> in the PiP doc and
+  //    broke every CSS rule scoped under `:where(.pip-mode) main { ... }`.
+  //    By moving <main> itself, all our narrow-window styles (padding,
+  //    hidden brand text, single-column role-picker, etc.) just work.
+  //
+  //    Remember origin position so we can put it back EXACTLY where it
+  //    was — preserving order relative to siblings like the placeholder.
+  const originParent = opts.sourceEl.parentNode;
+  const originNextSibling = opts.sourceEl.nextSibling;
+  if (!originParent) {
+    console.warn("[pip] sourceEl has no parent — aborting");
+    try { pipWindow.close(); } catch { /* ignore */ }
+    return null;
+  }
+  pipWindow.document.body.appendChild(opts.sourceEl);
 
   // 5) Show the placeholder in the origin tab.
   opts.placeholderEl.classList.remove("hidden");
@@ -162,10 +183,13 @@ export async function openPip(opts: OpenPipOptions): Promise<PipHandle | null> {
     if (restoreRan) return;
     restoreRan = true;
     try {
-      // Move children back into origin's source element.
-      opts.sourceEl.append(...Array.from(pipWindow.document.body.childNodes));
+      // Put sourceEl back into its original position in the origin doc.
+      // insertBefore handles both cases — null nextSibling appends at
+      // the end (the documented behavior of insertBefore when ref-node
+      // is null), so we always preserve the original sibling order.
+      originParent.insertBefore(opts.sourceEl, originNextSibling);
     } catch (err) {
-      console.warn("[pip] restore append failed:", err);
+      console.warn("[pip] restore insertBefore failed:", err);
     }
     opts.placeholderEl.classList.add("hidden");
     active = null;

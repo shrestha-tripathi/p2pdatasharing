@@ -231,9 +231,10 @@ html[data-theme="dark"] .astro-code span {
   /* Origin tab's <main> uses max-w-[1000px] + px-4/md:px-8 + py-10/md:py-16
      — all designed for a desktop tab. In a 400px PiP window those
      constraints leave almost no usable width. Override to full width +
-     tight padding. */
+     comfortable 1rem padding on all 4 sides so text/borders aren't
+     flush against the PiP window's chrome. */
   max-width: 100% !important;
-  padding: 0.75rem !important;
+  padding: 1rem !important;
 }
 
 /* The header is meaningful (status pill + connection state lives there
