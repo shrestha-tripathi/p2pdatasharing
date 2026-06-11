@@ -194,50 +194,19 @@ import { site } from "../site.config";
       </div>
       <!-- Auto-mode role picker: receiver also needs a way to paste an invite link -->
       <div id="role-receive-input" class="hidden mt-4 rounded-lg border border-[var(--color-border)] p-5">
-        <h3 class="font-semibold mb-1">Paste your invite link</h3>
+        <h3 class="font-semibold mb-1">Enter the sender's 4-character code</h3>
         <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-          The sender should have given you a link like
-          <code class="font-mono text-xs">https://…/transfer?r=abc123</code>.
-          You can also just paste the room ID (the part after <code class="font-mono text-xs">?r=</code>),
-          or scan the sender's QR code.
+          Ask the sender to read out the 4-character code from their screen — or paste their invite link below.
         </p>
-        <div class="flex gap-2">
-          <input
-            id="role-receive-link"
-            type="text"
-            placeholder="https://… or just the room ID"
-            class="flex-1 min-w-0 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
-          />
-          <button
-            id="role-receive-scan"
-            type="button"
-            class="h-10 px-3 rounded-md border border-[var(--color-border)] text-sm font-medium hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-1.5 shrink-0"
-            title="Scan the sender's QR code with your camera"
-            aria-label="Scan QR code"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
-              <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
-              <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
-              <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
-              <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
-              <rect x="7" y="7" width="10" height="10" rx="1"/>
-            </svg>
-            <span class="hidden sm:inline">Scan QR</span>
-          </button>
-          <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40 shrink-0" disabled>Join</button>
-        </div>
 
         <!--
-          Short-code claim block — 4 boxes, autoadvance, paste-aware. The
-          sender displays a 4-char Crockford Base32 code beside their QR;
-          receiver types it here, we POST /code/claim → roomId → join the
-          same room as if they'd pasted the link.
+          Short-code claim block — PRIMARY input. 4 boxes, autoadvance,
+          paste-aware. Sender displays a 4-char Crockford Base32 code
+          beside their QR; receiver types it here, we POST /code/claim
+          → roomId → join the same room as if they'd pasted the link.
           See docs/specs/local-network-code-pairing.md.
         -->
-        <div class="mt-5 pt-5 border-t border-[var(--color-border)]">
-          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
-            Or enter the 4-character pairing code from the sender's screen:
-          </p>
+        <div>
           <div class="flex flex-wrap items-center gap-3">
             <div id="claim-code-boxes" class="flex gap-2">
               <input class="claim-code-box w-12 h-14 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] text-center font-mono text-2xl font-semibold uppercase tracking-tight focus:outline-none focus:border-[var(--color-accent)]" maxlength="1" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Pairing code character 1" />
@@ -255,8 +224,48 @@ import { site } from "../site.config";
           </div>
         </div>
 
+        <!--
+          Invite-link / room-ID paste — SECONDARY input. Below the code
+          boxes because the most common flow is in-person/voice-call
+          ("type the 4 chars I see"). Link paste is the right move when
+          the sender already messaged you a URL — those users land here
+          with the URL on clipboard and naturally click the field.
+        -->
+        <div class="mt-5 pt-5 border-t border-[var(--color-border)]">
+          <p class="text-sm text-[var(--color-fg-muted)] mb-3">
+            Or paste the invite link the sender shared (e.g.
+            <code class="font-mono text-xs">https://…/transfer?r=abc123</code>) —
+            or just the room ID, or scan their QR.
+          </p>
+          <div class="flex gap-2">
+            <input
+              id="role-receive-link"
+              type="text"
+              placeholder="https://… or just the room ID"
+              class="flex-1 min-w-0 h-10 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-3 font-mono text-sm focus:outline-none focus:border-[var(--color-accent)]"
+            />
+            <button
+              id="role-receive-scan"
+              type="button"
+              class="h-10 px-3 rounded-md border border-[var(--color-border)] text-sm font-medium hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-1.5 shrink-0"
+              title="Scan the sender's QR code with your camera"
+              aria-label="Scan QR code"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"/>
+                <path d="M17 3h2a2 2 0 0 1 2 2v2"/>
+                <path d="M21 17v2a2 2 0 0 1-2 2h-2"/>
+                <path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <rect x="7" y="7" width="10" height="10" rx="1"/>
+              </svg>
+              <span class="hidden sm:inline">Scan QR</span>
+            </button>
+            <button id="role-receive-go" class="h-10 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90 disabled:opacity-40 shrink-0" disabled>Join</button>
+          </div>
+        </div>
+
         <p class="mt-3 text-xs text-[var(--color-fg-subtle)]">
-          No link yet? Ask the sender to copy theirs, or use
+          No code or link yet? Ask the sender to start their session, or use
           <button id="role-receive-paranoid" class="underline hover:text-[var(--color-fg)]">paranoid mode</button>
           to exchange a manual handshake instead.
         </p>
