@@ -35,6 +35,18 @@ import { site } from "../site.config";
         <button id="help-toggle" type="button" class="text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><circle cx="12" cy="17" r="0.5" fill="currentColor"/></svg>
         </button>
+        <!--
+          Document Picture-in-Picture toggle. Hidden by default; init script
+          unhides on browsers where `documentPictureInPicture` exists
+          (Chromium 116+ on desktop only). Hand-inlined Lucide
+          `picture-in-picture-2` icon — zero dep, themes via currentColor.
+          The "exit" variant is hidden until PiP is open; init script
+          swaps the .hidden class on the two SVGs in concert.
+        -->
+        <button id="pip-toggle" type="button" class="hidden text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] transition-colors" aria-label="Pop out into floating window" title="Pop out into floating window">
+          <svg id="pip-icon-open" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-7"/><path d="M10 19H4a2 2 0 0 1-2-2v-2"/><rect x="2" y="13" width="10" height="8" rx="2"/></svg>
+          <svg id="pip-icon-close" class="hidden" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-7"/><path d="M10 19H4a2 2 0 0 1-2-2v-2"/><rect x="2" y="13" width="10" height="8" rx="2"/><path d="m5 16 4 4M9 16l-4 4"/></svg>
+        </button>
         <label class="inline-flex items-center gap-3 text-sm cursor-pointer select-none group" title="Skip our signaling server — copy/paste the handshake yourself">
           <span class="text-[var(--color-fg-muted)] group-hover:text-[var(--color-fg)] transition-colors">Paranoid mode</span>
           <span class="relative inline-block">
@@ -743,6 +755,23 @@ import { site } from "../site.config";
     </div>
   </main>
 
+  <!--
+    Placeholder shown in the origin tab while the transfer UI is floating
+    in a PiP window. Hidden by default; pipWindow.openPip() flips the
+    `hidden` class on open, restores on close.
+  -->
+  <div id="pip-placeholder" class="hidden mx-auto max-w-[1000px] px-4 md:px-8 py-16">
+    <div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-subtle)] p-8 text-center">
+      <div class="text-4xl mb-4" aria-hidden="true">📺</div>
+      <h2 class="text-xl font-semibold mb-2">Floating in a Picture-in-Picture window</h2>
+      <p class="text-sm text-[var(--color-fg-muted)] mb-6">Your transfer UI is now in a small always-on-top window. Close it (or click below) to bring it back here.</p>
+      <button id="pip-placeholder-bring-back" type="button" class="h-10 rounded-md border border-[var(--color-border)] px-4 text-sm hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 14-4 4M5 18l4 4M5 18h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v8"/></svg>
+        Bring back to this tab
+      </button>
+    </div>
+  </div>
+
   <script>
     import { TeleportSession, type PeerConnState, type DiagSnapshot } from "../lib/teleportSession";
     import { FileTransfer, saveFileToDisk } from "../lib/fileTransfer";
@@ -768,6 +797,7 @@ import { site } from "../site.config";
     import QRCode from "qrcode";
     import { downloadZip } from "client-zip";
     import { startQrScanner, type ScannerController } from "../lib/qrScanner";
+    import { isPipSupported, isPipOpen, openPip, closePip } from "../lib/pipWindow";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -5001,5 +5031,70 @@ import { site } from "../site.config";
     // Theme toggle now lives in <Nav /> (src/components/Nav.astro) — global
     // for the whole site. Removed the duplicate /transfer-page-only button
     // + handler to prevent two toggles racing on the same theme state.
+
+    // ── Document Picture-in-Picture toggle ─────────────────────────────
+    // Feature-detected at boot. On unsupported browsers (Firefox, Safari,
+    // mobile), the button stays hidden — silent degradation, no broken
+    // UI ever. On Chromium 116+ desktop, button is unhidden and click
+    // pops the entire <main> into a floating window.
+    //
+    // The DOM move is one-shot — the same JS event listeners, WebRTC
+    // handles, file refs, MediaStream refs, and module-scope closures
+    // keep working because we MOVE nodes (don't clone). On close, they
+    // come straight back into <main>.
+    const pipBtn = document.getElementById("pip-toggle") as HTMLButtonElement | null;
+    const pipIconOpen = document.getElementById("pip-icon-open");
+    const pipIconClose = document.getElementById("pip-icon-close");
+    const pipPlaceholder = document.getElementById("pip-placeholder");
+    const pipPlaceholderBringBack = document.getElementById("pip-placeholder-bring-back");
+    const pipMainEl = document.querySelector("main") as HTMLElement | null;
+
+    if (pipBtn && pipIconOpen && pipIconClose && pipPlaceholder && pipMainEl && isPipSupported()) {
+      pipBtn.classList.remove("hidden");
+
+      const setPipUi = (open: boolean) => {
+        if (open) {
+          pipIconOpen.classList.add("hidden");
+          pipIconClose.classList.remove("hidden");
+          pipBtn.setAttribute("aria-label", "Bring back to this tab");
+          pipBtn.setAttribute("title", "Bring back to this tab");
+        } else {
+          pipIconOpen.classList.remove("hidden");
+          pipIconClose.classList.add("hidden");
+          pipBtn.setAttribute("aria-label", "Pop out into floating window");
+          pipBtn.setAttribute("title", "Pop out into floating window");
+        }
+      };
+
+      const togglePip = async () => {
+        if (isPipOpen()) {
+          closePip();
+          // pagehide handler in pipWindow.ts runs onClose → setPipUi(false)
+          return;
+        }
+        const handle = await openPip({
+          sourceEl: pipMainEl,
+          placeholderEl: pipPlaceholder,
+          width: 400,
+          height: 640,
+          onClose: () => setPipUi(false),
+          pipTitle: `📺 ${document.title}`,
+        });
+        if (!handle) {
+          addWarning(
+            "Your browser blocked the floating window. Allow pop-ups for this site and try again.",
+          );
+          return;
+        }
+        setPipUi(true);
+      };
+
+      pipBtn.addEventListener("click", togglePip);
+      // The placeholder's "Bring back" button is identical to clicking
+      // the toggle while in PiP — same close path.
+      pipPlaceholderBringBack?.addEventListener("click", () => {
+        if (isPipOpen()) closePip();
+      });
+    }
   </script>
 </Layout>
