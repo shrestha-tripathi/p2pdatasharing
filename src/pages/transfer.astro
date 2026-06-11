@@ -4505,7 +4505,23 @@ import { site } from "../site.config";
       // Reveal the "paste link" input. We don't actually boot until the
       // user clicks Join (or switches to paranoid mode).
       roleReceiveInput.classList.remove("hidden");
-      roleReceiveLink.focus();
+      // Focus the 4-char pairing code input — most cross-device receive
+      // flows are "sender reads me their 4-char code" (in person / on
+      // a call), NOT "sender shares a link I paste here." Link-paste
+      // remains one tab away and is still the right move for messaging-
+      // app-shared invites. claimCodeBoxes is defined later in this
+      // module but is safe to reference inside this handler because the
+      // handler fires at user-event time, long after script init.
+      // setTimeout(0) guarantees focus happens AFTER the .hidden class
+      // is removed by the browser (otherwise iOS Safari ignores focus
+      // on still-display:none elements).
+      setTimeout(() => {
+        if (claimCodeBoxes[0]) {
+          claimCodeBoxes[0].focus();
+        } else {
+          roleReceiveLink.focus();
+        }
+      }, 0);
     };
 
     // ---------- Connect-mode toggle (paired vs stranger) ----------
