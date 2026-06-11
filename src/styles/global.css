@@ -451,3 +451,116 @@ html[data-theme="dark"] .astro-code span {
     left: 12px !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Connection advisory modal — shown on mobile when a transfer session
+ * first reaches "connected" state. Tells the user to keep the tab
+ * visible to avoid iOS/in-app browser tab suspension.
+ *
+ * Built by src/lib/connectionAdvisory.ts. Mobile-only, gated by
+ * session+forever dismiss flags. Uses the same animation primitives
+ * as the PiP tour for visual consistency.
+ * ─────────────────────────────────────────────────────────────── */
+@keyframes ftn-bg-advisory-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ftn-bg-advisory-pop-in {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 8px)) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.ftn-bg-advisory-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 80;
+  animation: ftn-bg-advisory-fade-in 200ms ease-out both;
+  cursor: pointer;
+}
+
+.ftn-bg-advisory-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 81;
+  width: min(340px, calc(100vw - 32px));
+  background: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.25rem;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32), 0 6px 16px rgba(0, 0, 0, 0.16);
+  animation: ftn-bg-advisory-pop-in 220ms ease-out both;
+}
+
+.ftn-bg-advisory-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.625rem 0;
+  color: var(--color-fg);
+  line-height: 1.35;
+}
+
+.ftn-bg-advisory-body {
+  margin: 0 0 0.625rem 0;
+  font-size: 0.875rem;
+  color: var(--color-fg-muted);
+  line-height: 1.5;
+}
+
+.ftn-bg-advisory-body-strong {
+  color: var(--color-fg);
+  font-weight: 500;
+}
+
+.ftn-bg-advisory-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.875rem 0 1rem 0;
+  font-size: 0.8125rem;
+  color: var(--color-fg-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ftn-bg-advisory-checkbox-input {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.ftn-bg-advisory-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ftn-bg-advisory-ok {
+  height: 38px;
+  padding: 0 1.125rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.ftn-bg-advisory-ok:hover { opacity: 0.9; }
+.ftn-bg-advisory-ok:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-accent) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.ftn-bg-advisory-backdrop.ftn-bg-advisory-leaving,
+.ftn-bg-advisory-modal.ftn-bg-advisory-leaving {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ftn-bg-advisory-backdrop,
+  .ftn-bg-advisory-modal { animation: none !important; }
+  .ftn-bg-advisory-modal { transform: translate(-50%, -50%) !important; }
+}

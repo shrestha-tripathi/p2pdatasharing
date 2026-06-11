@@ -799,6 +799,7 @@ import { site } from "../site.config";
     import { startQrScanner, type ScannerController } from "../lib/qrScanner";
     import { isPipSupported, isPipOpen, openPip, closePip } from "../lib/pipWindow";
     import { initPipTour } from "../lib/pipTour";
+    import { maybeShowConnectionAdvisory } from "../lib/connectionAdvisory";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -2063,6 +2064,12 @@ import { site } from "../site.config";
           if (prevState !== "connected") {
             playConnectChirp();
             vibrate(80);
+            // Mobile-only advisory: warn user to keep the tab open during
+            // transfer (iOS Safari + in-app browsers aggressively suspend
+            // backgrounded tabs). Self-gates: mobile-only, once per
+            // session, opt-out checkbox for forever-dismiss. Symmetric:
+            // both sender and receiver fire this hook on first connect.
+            maybeShowConnectionAdvisory();
           }
           transferPanel.classList.remove("hidden");
           senderLink.classList.add("hidden");
