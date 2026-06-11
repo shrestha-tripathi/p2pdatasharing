@@ -800,6 +800,7 @@ import { site } from "../site.config";
     import { isPipSupported, isPipOpen, openPip, closePip } from "../lib/pipWindow";
     import { initPipTour } from "../lib/pipTour";
     import { maybeShowConnectionAdvisory } from "../lib/connectionAdvisory";
+    import { canShareFile, shareFile } from "../lib/shareSheet";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -2475,11 +2476,37 @@ import { site } from "../site.config";
             ${preview}
             <div class="flex items-center gap-2 flex-wrap mt-3">
               <button class="h-9 rounded-md bg-[var(--color-fg)] px-4 text-sm font-medium text-[var(--color-bg)] hover:opacity-90" data-act="save">Save to disk</button>
+              <button class="hidden h-9 rounded-md border border-[var(--color-border)] px-4 text-sm font-medium hover:bg-[var(--color-bg-muted)] inline-flex items-center gap-1.5" data-act="share" aria-label="Share via system share sheet" title="Share via system share sheet">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                Share
+              </button>
               <span class="text-xs text-[var(--color-fg-subtle)]" data-act="hint">Pick where to save the file on your device</span>
             </div>
           `;
           const btn = row.action.querySelector('[data-act="save"]') as HTMLButtonElement;
+          const shareBtn = row.action.querySelector('[data-act="share"]') as HTMLButtonElement;
           const hint = row.action.querySelector('[data-act="hint"]') as HTMLElement;
+          // Feature-detect native share sheet per-file (some browsers gate
+          // on MIME type — see src/lib/shareSheet.ts comments). Hidden by
+          // default in markup; we only unhide when the OS will actually
+          // accept this specific File payload. Massive UX win on iOS where
+          // it's the only practical path to Photos/Messages/Mail without
+          // a 5-tap Files-app detour.
+          if (canShareFile(file)) {
+            shareBtn.classList.remove("hidden");
+            shareBtn.onclick = async () => {
+              shareBtn.disabled = true;
+              const result = await shareFile(file, meta.name);
+              shareBtn.disabled = false;
+              if (result.status === "error") {
+                addWarning(`Share failed: ${result.message}`);
+              }
+              // "cancelled" and "shared" are both silent successes from
+              // a UI perspective — no toast, no state change. The user
+              // already got the feedback they needed from the OS sheet
+              // (cancel button vs. confirmation in the receiving app).
+            };
+          }
           // If this file came from a folder, update the hint with safe textContent
           // (folder names are user-supplied filesystem strings — never interpolate
           // directly into innerHTML).
