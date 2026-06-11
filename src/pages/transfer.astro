@@ -798,6 +798,7 @@ import { site } from "../site.config";
     import { downloadZip } from "client-zip";
     import { startQrScanner, type ScannerController } from "../lib/qrScanner";
     import { isPipSupported, isPipOpen, openPip, closePip } from "../lib/pipWindow";
+    import { initPipTour } from "../lib/pipTour";
 
     // ---------- DOM ----------
     const $ = <T extends HTMLElement = HTMLElement>(id: string) =>
@@ -5095,6 +5096,11 @@ import { site } from "../site.config";
       pipPlaceholderBringBack?.addEventListener("click", () => {
         if (isPipOpen()) closePip();
       });
+
+      // One-step onboarding pointer — fires 2.5s after load on first
+      // visit. initPipTour() self-bails if seen, unsupported, or anchor
+      // is missing/hidden, so this is safe to always call here.
+      initPipTour();
     }
   </script>
 </Layout>

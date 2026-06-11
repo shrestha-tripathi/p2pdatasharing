@@ -323,3 +323,130 @@ html[data-theme="dark"] .astro-code span {
 /* The PiP placeholder shown in the ORIGIN tab uses our normal layout —
    nothing to override here. The .pip-mode scope means none of the
    above leaks into origin. */
+
+/* ─────────────────────────────────────────────────────────────────────
+ * PiP onboarding tour — one-step spotlight + popover.
+ *
+ * Built by src/lib/pipTour.ts. The whole tour gates itself on:
+ *  - localStorage 'ftn:pip-tour-seen-v1' === '1' → never shows again
+ *  - documentPictureInPicture support → only Chromium 116+ desktop
+ *  - presence of the #pip-toggle anchor (visible, not .hidden)
+ *
+ * The spotlight uses the 9999px outset box-shadow trick: a colored ring
+ * around the anchor + a darkened-everything-else "hole" effect, all in
+ * pure CSS, no SVG masks or canvas.
+ * ─────────────────────────────────────────────────────────────── */
+@keyframes ftn-pip-tour-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ftn-pip-tour-pop-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ftn-pip-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 70;
+  animation: ftn-pip-tour-fade-in 200ms ease-out both;
+  cursor: pointer; /* signals "click to dismiss" */
+}
+
+.ftn-pip-tour-spotlight {
+  position: fixed;
+  z-index: 71;
+  border-radius: 8px;
+  pointer-events: none;
+  /* The trick: small accent ring + giant outset shadow creating a hole. */
+  box-shadow:
+    0 0 0 3px color-mix(in oklab, var(--color-accent) 65%, transparent),
+    0 0 0 9999px rgba(0, 0, 0, 0.55);
+  transition: top 180ms ease, left 180ms ease, width 180ms ease, height 180ms ease;
+}
+
+.ftn-pip-tour-popover {
+  position: fixed;
+  z-index: 72;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.125rem;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.24), 0 4px 12px rgba(0, 0, 0, 0.12);
+  animation: ftn-pip-tour-pop-in 220ms ease-out both;
+  transition: top 180ms ease, left 180ms ease;
+  font-size: 0.875rem;
+}
+
+.ftn-pip-tour-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0 0 0.375rem 0;
+  color: var(--color-fg);
+}
+
+.ftn-pip-tour-body {
+  margin: 0 0 0.875rem 0;
+  color: var(--color-fg-muted);
+  line-height: 1.45;
+}
+
+.ftn-pip-tour-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ftn-pip-tour-got-it {
+  height: 34px;
+  padding: 0 0.875rem;
+  border-radius: 6px;
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+.ftn-pip-tour-got-it:hover { opacity: 0.9; }
+
+.ftn-pip-tour-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.ftn-pip-tour-close:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-fg);
+}
+
+.ftn-pip-tour-backdrop.ftn-pip-tour-leaving,
+.ftn-pip-tour-popover.ftn-pip-tour-leaving {
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ftn-pip-tour-backdrop,
+  .ftn-pip-tour-popover { animation: none !important; }
+  .ftn-pip-tour-spotlight { transition: none !important; }
+}
+
+@media (max-width: 420px) {
+  /* Force full width on narrow viewports — the 300px popover otherwise
+     leaves no margin. Mobile shouldn't see the tour anyway (PiP isn't
+     supported), but defensive in case our detection misfires. */
+  .ftn-pip-tour-popover {
+    width: calc(100vw - 24px) !important;
+    left: 12px !important;
+  }
+}
