@@ -168,7 +168,7 @@ async function awaitTurnCredsWithDeadline(
   ]);
 }
 
-const CONNECT_TIMEOUT_MS = 15_000;
+export const CONNECT_TIMEOUT_MS = 15_000;
 
 export interface CreateSessionOptions {
   signalingUrl: string;

@@ -564,3 +564,48 @@ html[data-theme="dark"] .astro-code span {
   .ftn-bg-advisory-modal { animation: none !important; }
   .ftn-bg-advisory-modal { transform: translate(-50%, -50%) !important; }
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Connect-progress bar — appears under the status text in #status-card
+ * while state==="connecting" (ICE handshake / TURN allocation window).
+ *
+ * Animation strategy: pure CSS keyframes on the compositor thread —
+ * zero JS overhead during connect. Duration comes from the
+ * --connect-timeout-ms custom property set by transfer.astro at boot,
+ * which mirrors CONNECT_TIMEOUT_MS from src/lib/teleportSession.ts.
+ * Single source of truth: bumping the timeout in TS auto-syncs the bar.
+ *
+ * Reset is triggered by the JS helper toggling .is-filling off + on
+ * with a forced reflow in between (standard CSS-only animation-restart
+ * pattern). See updateProgressBar() in transfer.astro.
+ *
+ * Reduced-motion safety net at the bottom of this block.
+ * ─────────────────────────────────────────────────────────────── */
+@keyframes status-progress-fill {
+  from { width: 0%; }
+  to   { width: 100%; }
+}
+
+.status-progress-fill {
+  /* Fallback if --connect-timeout-ms isn't set yet (script hasn't run);
+     15s matches the current CONNECT_TIMEOUT_MS default. */
+  --connect-timeout-ms: 15000ms;
+  /* Smooth out the fill — linear duration, ease-in-out at the very
+     edges so the initial appearance + completion don't look abrupt. */
+  transition: width 200ms ease;
+}
+
+.status-progress-fill.is-filling {
+  animation: status-progress-fill var(--connect-timeout-ms) linear forwards;
+}
+
+/* Vestibular safety — drop the animation, show a static 50% bar to
+   communicate "in progress" without motion stress. Users with
+   reduced-motion preferences explicitly don't want growing/sliding
+   elements; the static bar still signals "something is happening". */
+@media (prefers-reduced-motion: reduce) {
+  .status-progress-fill.is-filling {
+    animation: none !important;
+    width: 50% !important;
+  }
+}

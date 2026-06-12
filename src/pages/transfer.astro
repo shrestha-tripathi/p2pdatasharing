@@ -372,6 +372,27 @@ import { site } from "../site.config";
       </div>
       <p id="status-detail" class="mt-2 text-sm text-[var(--color-fg-muted)]"></p>
 
+      <!--
+        Connection-progress bar — appears only during state==="connecting"
+        (i.e. ICE handshake / TURN allocation window). Animates 0% → 100%
+        over CONNECT_TIMEOUT_MS via pure CSS, no JS interval. The duration
+        is driven by a CSS custom property set at boot via JS so the
+        bar always tracks the actual timeout constant in teleportSession.ts.
+        Hidden by default; setStatus() toggles visibility + restarts the
+        animation when entering "connecting" from another state.
+      -->
+      <div
+        id="status-progress"
+        class="hidden mt-3 h-[3px] w-full overflow-hidden rounded-full bg-[var(--color-bg-muted)]"
+        role="progressbar"
+        aria-label="Establishing peer connection"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <div id="status-progress-fill" class="status-progress-fill h-full w-0 bg-[var(--color-accent)]"></div>
+      </div>
+
       <!-- Manual disconnect — surfaces whenever there's an active session
            (paired auto-connect, normal sender/receiver, or paranoid). -->
       <div class="mt-3">
@@ -782,7 +803,7 @@ import { site } from "../site.config";
   </div>
 
   <script>
-    import { TeleportSession, type PeerConnState, type DiagSnapshot } from "../lib/teleportSession";
+    import { TeleportSession, type PeerConnState, type DiagSnapshot, CONNECT_TIMEOUT_MS } from "../lib/teleportSession";
     import { FileTransfer, saveFileToDisk } from "../lib/fileTransfer";
     import { ChatManager, type ChatMessage } from "../lib/chat";
     import { generateRoomId, formatBytes, formatRate, formatEta } from "../lib/format";
@@ -834,6 +855,8 @@ import { site } from "../site.config";
     const statusDetail = $("status-detail");
     const statusRole = $("status-role");
     const statusUptime = $("status-uptime") as HTMLSpanElement;
+    const statusProgress = $("status-progress");
+    const statusProgressFill = $("status-progress-fill");
 
     // ---------- Connection uptime ticker ----------
     let connectedSince = 0;
@@ -1506,6 +1529,47 @@ import { site } from "../site.config";
 
 
     // ---------- Helpers ----------
+
+    // Sync the connect-progress bar's animation duration with the actual
+    // CONNECT_TIMEOUT_MS constant from teleportSession.ts. Done once at
+    // boot via CSS custom property so the bar fill rate is the SINGLE
+    // source of truth tied to the timeout — no magic 15s duplicate in CSS.
+    // If the constant ever bumps to 20s, the bar matches automatically
+    // without anyone editing CSS.
+    if (statusProgressFill) {
+      statusProgressFill.style.setProperty("--connect-timeout-ms", `${CONNECT_TIMEOUT_MS}ms`);
+    }
+
+    /**
+     * Show/hide/reset the connect-progress bar based on the new state.
+     * Idempotent — re-entering "connecting" from itself is a no-op
+     * (avoids spurious reset on every diag tick); transitioning IN
+     * from any non-connecting state restarts the fill animation.
+     */
+    let progressBarVisibleState: PeerConnState | null = null;
+    const updateProgressBar = (s: PeerConnState) => {
+      if (!statusProgress || !statusProgressFill) return;
+      if (s === "connecting") {
+        if (progressBarVisibleState === "connecting") return; // idempotent
+        progressBarVisibleState = "connecting";
+        statusProgress.classList.remove("hidden");
+        statusProgress.setAttribute("aria-valuenow", "0");
+        // Force animation restart: removing then re-adding the class on
+        // the next frame is the canonical CSS-only reset pattern (without
+        // it, re-entering "connecting" mid-animation would NOT restart).
+        statusProgressFill.classList.remove("is-filling");
+        // Trigger reflow so the class removal takes effect before re-add.
+        void statusProgressFill.offsetWidth;
+        statusProgressFill.classList.add("is-filling");
+      } else {
+        if (progressBarVisibleState === null) return; // already hidden
+        progressBarVisibleState = null;
+        statusProgress.classList.add("hidden");
+        statusProgressFill.classList.remove("is-filling");
+        statusProgress.setAttribute("aria-valuenow", "0");
+      }
+    };
+
     const setStatus = (s: PeerConnState, detail = "") => {
       const map: Record<PeerConnState, { label: string; color: string }> = {
         idle: { label: "Idle", color: "var(--color-fg-subtle)" },
@@ -1519,6 +1583,7 @@ import { site } from "../site.config";
       statusLabel.textContent = label;
       statusDot.style.background = color;
       statusDetail.textContent = detail;
+      updateProgressBar(s);
       if (s === "connected") startUptime(); else stopUptime();
     };
 
