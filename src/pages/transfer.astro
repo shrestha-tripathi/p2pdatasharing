@@ -3163,113 +3163,158 @@ import { site } from "../site.config";
 
     pickFolderBtn.addEventListener("click", () => folderInput.click());
 
-    // Drop-zone visual feedback: pulse + glow when a file is dragged over.
-    // We use a counter because dragenter/dragleave fire for every child element,
-    // not just the outer container — naive add/remove would flicker.
-    const dropZoneLabel = document.getElementById("drop-zone-label");
-    if (dropZoneLabel) {
-      let dragDepth = 0;
-      const isFileDrag = (e: DragEvent) =>
-        Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    // Wire all file-intake affordances — drag-over visual feedback, file/
+    // folder drop handling, and clipboard paste — onto a given document +
+    // window pair. Called once for the main page at boot, and AGAIN for the
+    // Picture-in-Picture window when the user pops out (see the PiP toggle
+    // below).
+    //
+    // Why the second call is mandatory: openPip() REPARENTS <main> (which
+    // contains the drop zone) into the PiP window's own document. DOM event
+    // listeners are bound per-document, so the PiP doc starts with NONE of
+    // these handlers. Without a `dragover` preventDefault + `drop` handler
+    // there, Chromium falls back to its default action and NAVIGATES the PiP
+    // window to the dropped file — i.e. the file "opens in a new tab" instead
+    // of queueing. Binding the same handlers onto the PiP document fixes it.
+    //
+    // Returns a teardown that removes every listener it added. Used on PiP
+    // close: the PiP document is destroyed anyway, but we detach explicitly so
+    // rapid pop-out/pop-in toggling can never accumulate stale listeners, and
+    // so each document gets its OWN dragDepth counter (sharing one across two
+    // documents would desync the enter/leave bookkeeping).
+    const wireFileIntake = (doc: Document, win: Window): (() => void) => {
+      const teardowns: Array<() => void> = [];
 
-      document.addEventListener("dragenter", (e) => {
-        if (role !== "sender") return;
-        if (!isFileDrag(e)) return;
-        dragDepth++;
-        dropZoneLabel.classList.add("is-dragover");
-      });
-      document.addEventListener("dragleave", (e) => {
-        if (role !== "sender") return;
-        if (!isFileDrag(e)) return;
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) dropZoneLabel.classList.remove("is-dragover");
-      });
-      // Reset on drop or window leave — covers edge cases where dragleave fires
-      // in a non-symmetric way (drop on an unrelated target, escape key, etc.).
-      const resetDragState = () => {
-        dragDepth = 0;
-        dropZoneLabel.classList.remove("is-dragover");
-      };
-      document.addEventListener("drop", resetDragState);
-      window.addEventListener("blur", resetDragState);
-    }
+      // Drop-zone visual feedback: pulse + glow when a file is dragged over.
+      // We use a counter because dragenter/dragleave fire for every child
+      // element, not just the outer container — naive add/remove would flicker.
+      const dropZoneLabel = doc.getElementById("drop-zone-label");
+      if (dropZoneLabel) {
+        let dragDepth = 0;
+        const isFileDrag = (e: DragEvent) =>
+          Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-    document.addEventListener("dragover", (e) => e.preventDefault());
-    document.addEventListener("drop", async (e) => {
-      e.preventDefault();
-      if (role !== "sender") return; // ignore drops on receiver side
-      const items = e.dataTransfer?.items;
-      // Detect folder drops via DataTransferItem.webkitGetAsEntry
-      if (items && items.length > 0) {
-        const entries: FsEntry[] = [];
-        for (const item of Array.from(items)) {
-          const entry = (item as DataTransferItem & {
-            webkitGetAsEntry?: () => FsEntry | null;
-          }).webkitGetAsEntry?.();
-          if (entry) entries.push(entry);
-        }
-        const hasFolder = entries.some((en) => en.isDirectory);
-        if (hasFolder) {
-          // Mixed or folder-only drop: walk every folder, queue all files
-          // with paths so receiver groups + recreates the tree. Stand-alone
-          // files dropped alongside go through onPickFiles (no path).
-          const standalone: File[] = [];
-          for (const entry of entries) {
-            if (entry.isFile && entry.file) {
-              const f: File = await new Promise((res, rej) => entry.file!(res, rej));
-              standalone.push(f);
-            } else if (entry.isDirectory) {
-              const walked = await walkEntry(entry, "");
-              // Re-prefix so the path root matches the folder name
-              const withRoot = walked.map(({ file, path }) => ({
-                file,
-                path: `${entry.name}/${path}`,
-              }));
-              onPickFolderFiles(withRoot);
+        const onDragEnter = (e: DragEvent) => {
+          if (role !== "sender") return;
+          if (!isFileDrag(e)) return;
+          dragDepth++;
+          dropZoneLabel.classList.add("is-dragover");
+        };
+        const onDragLeave = (e: DragEvent) => {
+          if (role !== "sender") return;
+          if (!isFileDrag(e)) return;
+          dragDepth = Math.max(0, dragDepth - 1);
+          if (dragDepth === 0) dropZoneLabel.classList.remove("is-dragover");
+        };
+        // Reset on drop or window leave — covers edge cases where dragleave
+        // fires non-symmetrically (drop on an unrelated target, Escape, etc.).
+        const resetDragState = () => {
+          dragDepth = 0;
+          dropZoneLabel.classList.remove("is-dragover");
+        };
+        doc.addEventListener("dragenter", onDragEnter);
+        doc.addEventListener("dragleave", onDragLeave);
+        doc.addEventListener("drop", resetDragState);
+        win.addEventListener("blur", resetDragState);
+        teardowns.push(() => {
+          doc.removeEventListener("dragenter", onDragEnter);
+          doc.removeEventListener("dragleave", onDragLeave);
+          doc.removeEventListener("drop", resetDragState);
+          win.removeEventListener("blur", resetDragState);
+        });
+      }
+
+      const onDragOver = (e: DragEvent) => e.preventDefault();
+      const onDrop = async (e: DragEvent) => {
+        e.preventDefault();
+        if (role !== "sender") return; // ignore drops on receiver side
+        const items = e.dataTransfer?.items;
+        // Detect folder drops via DataTransferItem.webkitGetAsEntry
+        if (items && items.length > 0) {
+          const entries: FsEntry[] = [];
+          for (const item of Array.from(items)) {
+            const entry = (item as DataTransferItem & {
+              webkitGetAsEntry?: () => FsEntry | null;
+            }).webkitGetAsEntry?.();
+            if (entry) entries.push(entry);
+          }
+          const hasFolder = entries.some((en) => en.isDirectory);
+          if (hasFolder) {
+            // Mixed or folder-only drop: walk every folder, queue all files
+            // with paths so receiver groups + recreates the tree. Stand-alone
+            // files dropped alongside go through onPickFiles (no path).
+            const standalone: File[] = [];
+            for (const entry of entries) {
+              if (entry.isFile && entry.file) {
+                const f: File = await new Promise((res, rej) => entry.file!(res, rej));
+                standalone.push(f);
+              } else if (entry.isDirectory) {
+                const walked = await walkEntry(entry, "");
+                // Re-prefix so the path root matches the folder name
+                const withRoot = walked.map(({ file, path }) => ({
+                  file,
+                  path: `${entry.name}/${path}`,
+                }));
+                onPickFolderFiles(withRoot);
+              }
             }
+            if (standalone.length > 0) {
+              const dt = new DataTransfer();
+              for (const f of standalone) dt.items.add(f);
+              onPickFiles(dt.files);
+            }
+            return;
           }
-          if (standalone.length > 0) {
-            const dt = new DataTransfer();
-            for (const f of standalone) dt.items.add(f);
-            onPickFiles(dt.files);
-          }
-          return;
         }
-      }
-      // Plain files (no folders) — original path
-      onPickFiles(e.dataTransfer?.files ?? null);
-    });
+        // Plain files (no folders) — original path
+        onPickFiles(e.dataTransfer?.files ?? null);
+      };
+      doc.addEventListener("dragover", onDragOver);
+      doc.addEventListener("drop", onDrop);
+      teardowns.push(() => {
+        doc.removeEventListener("dragover", onDragOver);
+        doc.removeEventListener("drop", onDrop);
+      });
 
-    // Paste images from clipboard (sender only). Ctrl+V / Cmd+V with an
-    // image on the clipboard auto-queues it as pasted-image-<ts>.<ext>.
-    document.addEventListener("paste", (e) => {
-      if (role !== "sender") return;
-      // Skip if user is pasting into a text field (chat input, paranoid blobs).
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      const picked: File[] = [];
-      for (const item of Array.from(items)) {
-        if (item.kind !== "file") continue;
-        const blob = item.getAsFile();
-        if (!blob) continue;
-        // Rename pasted images (browsers give them generic "image.png" names)
-        // so multiple pastes don't clash.
-        const ext = (blob.type.split("/")[1] || "bin").replace("+xml", "");
-        const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-        const name = blob.type.startsWith("image/")
-          ? `pasted-image-${stamp}.${ext}`
-          : blob.name || `pasted-${stamp}.${ext}`;
-        picked.push(new File([blob], name, { type: blob.type, lastModified: Date.now() }));
-      }
-      if (picked.length === 0) return;
-      e.preventDefault();
-      const dt = new DataTransfer();
-      for (const f of picked) dt.items.add(f);
-      onPickFiles(dt.files);
-    });
+      // Paste images from clipboard (sender only). Ctrl+V / Cmd+V with an
+      // image on the clipboard auto-queues it as pasted-image-<ts>.<ext>.
+      const onPaste = (e: ClipboardEvent) => {
+        if (role !== "sender") return;
+        // Skip if user is pasting into a text field (chat input, paranoid blobs).
+        const target = e.target as HTMLElement | null;
+        const tag = target?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target?.isContentEditable) return;
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        const picked: File[] = [];
+        for (const item of Array.from(items)) {
+          if (item.kind !== "file") continue;
+          const blob = item.getAsFile();
+          if (!blob) continue;
+          // Rename pasted images (browsers give them generic "image.png" names)
+          // so multiple pastes don't clash.
+          const ext = (blob.type.split("/")[1] || "bin").replace("+xml", "");
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+          const name = blob.type.startsWith("image/")
+            ? `pasted-image-${stamp}.${ext}`
+            : blob.name || `pasted-${stamp}.${ext}`;
+          picked.push(new File([blob], name, { type: blob.type, lastModified: Date.now() }));
+        }
+        if (picked.length === 0) return;
+        e.preventDefault();
+        const dt = new DataTransfer();
+        for (const f of picked) dt.items.add(f);
+        onPickFiles(dt.files);
+      };
+      doc.addEventListener("paste", onPaste);
+      teardowns.push(() => doc.removeEventListener("paste", onPaste));
+
+      return () => teardowns.forEach((fn) => fn());
+    };
+
+    // Bind file intake on the main page now. Re-bound onto the PiP window when
+    // the user pops out — see the Document Picture-in-Picture toggle below.
+    wireFileIntake(document, window);
 
     // ---------- Boot per role ----------
     const showStatus = () => statusCard.classList.remove("hidden");
@@ -5191,6 +5236,11 @@ import { site } from "../site.config";
         }
       };
 
+      // Teardown for the file-intake listeners bound onto the PiP document.
+      // Held at toggle scope so the onClose callback (fired by pipWindow.ts on
+      // pagehide/unload/safety-net) can detach them. Null when not floating.
+      let pipIntakeTeardown: (() => void) | null = null;
+
       const togglePip = async () => {
         if (isPipOpen()) {
           closePip();
@@ -5202,7 +5252,19 @@ import { site } from "../site.config";
           placeholderEl: pipPlaceholder,
           width: 400,
           height: 640,
-          onClose: () => setPipUi(false),
+          onClose: () => {
+            // Detach the PiP-document intake listeners. The PiP document is
+            // being destroyed anyway, but explicit teardown keeps rapid
+            // pop-out/pop-in toggling from leaking listeners or desyncing the
+            // per-document dragDepth counter.
+            try {
+              pipIntakeTeardown?.();
+            } catch (err) {
+              console.warn("[pip] file-intake teardown threw:", err);
+            }
+            pipIntakeTeardown = null;
+            setPipUi(false);
+          },
           pipTitle: `📺 ${document.title}`,
         });
         if (!handle) {
@@ -5210,6 +5272,18 @@ import { site } from "../site.config";
             "Your browser blocked the floating window. Allow pop-ups for this site and try again.",
           );
           return;
+        }
+        // Re-bind drag/drop/paste onto the PiP window's document. Without this,
+        // dropping a file on the float navigates the PiP window to that file
+        // (browser default action) instead of queueing it — the drop zone got
+        // reparented into a document that has none of the main page's intake
+        // listeners. See wireFileIntake's header comment for the full rationale.
+        if (handle.window) {
+          try {
+            pipIntakeTeardown = wireFileIntake(handle.window.document, handle.window);
+          } catch (err) {
+            console.warn("[pip] failed to wire file intake into PiP window:", err);
+          }
         }
         setPipUi(true);
       };
