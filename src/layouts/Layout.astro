@@ -45,7 +45,48 @@ const websiteSchema = {
   inLanguage: site.locale,
 };
 
-const allJsonLd = [orgSchema, websiteSchema, ...jsonLd];
+// Auto-breadcrumb for every non-home page: Home → <title>. DRY — one edit here
+// covers all routes, so no page has to hand-roll a BreadcrumbList. Skipped on
+// the homepage (and on any page without a title) where it would just be noise,
+// and on noindex pages (404) where there is nothing for a crawler to index.
+// Dedup-aware: if a page already passes its own BreadcrumbList through the
+// `jsonLd` prop, we stand down so no page ever emits two.
+// `base` may be "/" (custom domain) or "/<repo>/" (project pages), so strip it
+// before deciding whether we're on the homepage.
+const stripSlashes = (p: string) => p.replace(/^\/+|\/+$/g, "");
+const basePath = stripSlashes(import.meta.env.BASE_URL);
+let pagePath = stripSlashes(Astro.url.pathname);
+if (basePath && (pagePath === basePath || pagePath.startsWith(`${basePath}/`))) {
+  pagePath = pagePath.slice(basePath.length).replace(/^\/+/, "");
+}
+const isHome = pagePath === "";
+const pageHasOwnBreadcrumb = jsonLd.some(
+  (schema) => (schema as { "@type"?: unknown })?.["@type"] === "BreadcrumbList",
+);
+
+const breadcrumbSchema =
+  title && !isHome && !noindex && !pageHasOwnBreadcrumb
+    ? {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          {
+            "@type": "ListItem",
+            position: 1,
+            name: "Home",
+            item: new URL(import.meta.env.BASE_URL, site.url).href,
+          },
+          { "@type": "ListItem", position: 2, name: title, item: canonical },
+        ],
+      }
+    : null;
+
+const allJsonLd = [
+  orgSchema,
+  websiteSchema,
+  ...(breadcrumbSchema ? [breadcrumbSchema] : []),
+  ...jsonLd,
+];
 ---
 
 <!doctype html>

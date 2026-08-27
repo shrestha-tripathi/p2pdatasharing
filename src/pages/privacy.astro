@@ -63,7 +63,8 @@ import { site } from "../site.config";
         </p>
         <ul class="mt-4 list-disc pl-6 space-y-2">
           <li>No persistent storage. No database.</li>
-          <li>No analytics on signaling traffic.</li>
+          <li>No analytics or advertising SDKs run on the signaling path —
+            handshake traffic is never fed to our website analytics.</li>
           <li>No room IDs retained after the last peer disconnects.</li>
           <li>Once the P2P connection is established, the signaling server is
             idle — your transfer would survive even if it crashed.</li>
@@ -142,12 +143,32 @@ import { site } from "../site.config";
       <div>
         <h2 class="text-xl md:text-2xl font-semibold text-[var(--color-fg)] tracking-tight">What the website logs</h2>
         <p class="mt-3">
-          Static page hits to <code class="font-mono text-[var(--color-fg)]">{site.domain}</code> may be
-          counted by the hosting CDN for traffic metering. There is no behavioral
-          tracking, no fingerprinting, and no third-party trackers on application
-          pages. If we later add lightweight analytics, it will be privacy-first
-          (no cookies) and disclosed here.
+          Being honest about the difference between the <em>product</em> and the
+          <em>website</em>: the P2P transfer itself is untouchable — your file
+          bytes never reach any server we run, and that is an architectural
+          guarantee, not a promise. The marketing and content pages of
+          <code class="font-mono text-[var(--color-fg)]">{site.domain}</code>,
+          however, are an ordinary website, and they do use
+          <strong class="text-[var(--color-fg)]">Google Analytics 4</strong> so we
+          can see which pages people find useful.
         </p>
+        <ul class="mt-4 list-disc pl-6 space-y-2">
+          <li>GA4 sets <strong class="text-[var(--color-fg)]">first-party analytics
+            cookies</strong> (e.g. <code class="font-mono text-[var(--color-fg)]">_ga</code>)
+            in your browser and records aggregate page views, referrer, approximate
+            region, and device/browser type.</li>
+          <li>We may also display ads served by Google AdSense on content pages;
+            Google and other third-party vendors use cookies to serve those ads.
+            See our <a href="/privacy-policy" class="text-[var(--color-accent)] underline">full privacy policy</a>
+            for the details and opt-out links.</li>
+          <li><strong class="text-[var(--color-fg)]">None of this touches your
+            files.</strong> Analytics and ad scripts see page URLs only — they
+            have no access to file names, file contents, transfer codes, chat
+            messages, or the encrypted WebRTC data channel.</li>
+          <li>Static page hits are also counted by the hosting CDN for traffic
+            metering. We do no behavioral fingerprinting of our own, and we never
+            sell personal data.</li>
+        </ul>
       </div>
 
       <div>
